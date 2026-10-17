@@ -34,10 +34,7 @@ async def main():
         target.mkdir(parents=True, exist_ok=True)
         async with app.run_test(size=(96, 24)) as pilot:
             await pilot.pause()
-            (target / "models.svg").write_text("\n".join(line.rstrip() for line in app.export_screenshot().splitlines()) + "\n", encoding="utf-8")
-            await pilot.press("tab")
-            await pilot.pause()
-            (target / "accounts.svg").write_text("\n".join(line.rstrip() for line in app.export_screenshot().splitlines()) + "\n", encoding="utf-8")
+            (target / "overview.svg").write_text("\n".join(line.rstrip() for line in app.export_screenshot().splitlines()) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

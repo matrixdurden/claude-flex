@@ -1,4 +1,4 @@
-"""Two tabs, a handful of keys, and the real Claude Code underneath."""
+"""One quiet screen for models, accounts and the real Claude Code underneath."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, OptionList, Static, Tab, Tabs
+from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from . import accounts, desktop, service
@@ -205,7 +205,6 @@ class FlexApp(App):
     ENABLE_COMMAND_PALETTE = False
     CSS_PATH = "tui.tcss"
     BINDINGS = [
-        Binding("tab", "switch_tab", "Switch tab", show=False, priority=True),
         Binding("a", "add", "Add", show=False),
         Binding("space", "toggle", "Toggle", show=False),
         Binding("r", "refresh", "Refresh", show=False),
@@ -220,17 +219,14 @@ class FlexApp(App):
         self.usage = usage or UsageService(store)
         self.logins = logins or LoginManager(store)
         self.launch = launch or service.run_claude
-        self.section = "models"
-        self.rows = []
-        self.selection = {"models": 0, "accounts": 0}
+        self.entries = {}
+        self.selected_key = None
         self.working = False
         self.refreshing = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="shell"):
             yield Static(Text.assemble(("claude", "bold"), (" flex", ACCENT)), id="brand")
-            yield Tabs(Tab("Models", id="models"), Tab("Accounts", id="accounts"), id="tabs")
-            yield Static("", id="columns", classes="muted", markup=False)
             yield OptionList(id="list")
             yield Static("", id="detail", markup=False)
             yield Static("", id="message", markup=False)
@@ -239,10 +235,7 @@ class FlexApp(App):
     def on_mount(self):
         self.theme = "textual-dark"
         self.listing = self.query_one("#list", OptionList)
-        config = self.store.load()
-        if not config["models"] and not config["accounts"]:
-            self.section = "accounts"
-            self.query_one(Tabs).active = "accounts"
+        service.merge_duplicate_models(self.store)
         self.draw()
         self.listing.focus()
         self.refresh_usage()
@@ -252,17 +245,16 @@ class FlexApp(App):
         return len(self.screen_stack) == 1
 
     def check_action(self, action, parameters):
-        if action in {"switch_tab", "quit", "add", "settings", "toggle", "refresh", "default"} and not self.main_screen():
+        if action in {"quit", "add", "settings", "toggle", "refresh", "default"} and not self.main_screen():
             return False
         return True
 
     def draw(self):
         config = self.store.load()
         rows = []
+        self.entries = {}
         width = self.size.width
-        if self.section == "models":
-            self.query_one("#columns", Static).update("Choose a model. Enter opens Claude Code in this folder.")
-            self.rows = list(config["models"])
+        if config["models"]:
             for label, model in config["models"].items():
                 provider = config["providers"][model["provider"]]
                 source = "Claude" if provider["kind"] == "claude-oauth" else "ChatGPT" if provider["kind"] == "codex" else model["provider"]
@@ -271,43 +263,47 @@ class FlexApp(App):
                 line.append("● " if label == config["active"] else "  ", style=ACCENT)
                 line.append(title[:30].ljust(32 if width >= 70 else 23))
                 line.append(plain(source), style=MUTED)
-                rows.append(Option(line, id=label))
-            keys = "↑↓ select   enter start   tab accounts   a add   s settings   q quit"
-        else:
-            self.query_one("#columns", Static).update("Accounts                          Remaining · 5h / 7d" if width >= 65 else "Accounts · remaining limits")
-            data = accounts.account_rows(self.store)
-            self.rows = [row["name"] for row in data]
-            cached = self.usage.cached()
-            for row in data:
-                usage = cached.get(row["name"])
-                source = "Claude" if row["provider"] == "claude" else "ChatGPT"
-                line = Text()
-                line.append("● " if row["enabled"] else "○ ", style=ACCENT if row["enabled"] else MUTED)
-                line.append(plain(row["name"])[:18].ljust(20))
-                line.append(source.ljust(10), style=MUTED)
-                if width >= 75:
-                    line.append(plain(row["plan"])[:9].ljust(11), style=MUTED)
-                line.append(f"{percent(usage, 18000):>5}  /  {percent(usage, 604800):>5}", style=ACCENT if not usage or not usage.get("error") else "#d8ae79")
-                rows.append(Option(line, id=row["name"]))
-            keys = "↑↓ select   enter details   space on/off   a add   r refresh   tab models"
+                key = f"model:{label}"
+                self.entries[key] = ("models", label)
+                rows.append(Option(line, id=key))
+            rows.append(Option("", disabled=True))
+        data = accounts.account_rows(self.store)
+        cached = self.usage.cached()
+        if data:
+            rows.append(Option(Text("accounts".ljust(32 if width >= 70 else 23) + "5h / 7d left", style=MUTED), disabled=True))
+        for row in data:
+            usage = cached.get(row["name"])
+            line = Text()
+            line.append("● " if row["enabled"] else "○ ", style=ACCENT if row["enabled"] else MUTED)
+            line.append(plain(row["name"])[:22].ljust(32 if width >= 70 else 23))
+            line.append(f"{percent(usage, 18000):>5} / {percent(usage, 604800):>5}", style=MUTED if not usage or not usage.get("error") else "#d8ae79")
+            key = f"account:{row['name']}"
+            self.entries[key] = ("accounts", row["name"])
+            rows.append(Option(line, id=key))
+        if not rows:
+            rows.append(Option(Text("Connect an account to get started.", style=MUTED), disabled=True))
+        if self.selected_key not in self.entries:
+            self.selected_key = f"model:{config['active']}" if f"model:{config['active']}" in self.entries else next(iter(self.entries), None)
         self.listing.clear_options()
         self.listing.add_options(rows)
-        self.listing.highlighted = min(self.selection[self.section], len(rows) - 1) if rows else None
-        self.query_one("#keys", Static).update(keys)
+        self.listing.highlighted = next((index for index, option in enumerate(rows) if option.id == self.selected_key), None)
+        self.query_one("#keys", Static).update("↑↓ select   enter open   a connect   s settings   q quit")
         self.update_detail()
 
+    @property
+    def section(self):
+        return self.entries.get(self.selected_key, ("models", None))[0]
+
     def current(self):
-        index = self.listing.highlighted
-        return self.rows[index] if index is not None and index < len(self.rows) else None
+        return self.entries.get(self.selected_key, (None, None))[1]
 
     def update_detail(self):
         label = self.current()
         detail = self.query_one("#detail", Static)
         if not label:
-            detail.update("No models yet. Press a to add one." if self.section == "models" else "No accounts yet. Press a to sign in.")
+            detail.update("a connect an account")
         elif self.section == "models":
-            model = self.store.load()["models"][label]
-            detail.update(Text(plain(model["id"]), style=MUTED))
+            detail.update("")
         else:
             usage = self.usage.cached().get(label)
             if not usage:
@@ -320,18 +316,8 @@ class FlexApp(App):
 
     @on(OptionList.OptionHighlighted, "#list")
     def highlighted(self, event):
-        self.selection[self.section] = event.option_index
+        self.selected_key = event.option.id
         self.update_detail()
-
-    @on(Tabs.TabActivated)
-    def tab_changed(self, event):
-        self.section = event.tab.id
-        self.draw()
-        self.listing.focus()
-
-    def action_switch_tab(self):
-        if self.main_screen():
-            self.query_one(Tabs).active = "accounts" if self.section == "models" else "models"
 
     def message(self, text, error=False):
         self.query_one("#message", Static).update(Text(plain(text), style="#e1a29a" if error else ACCENT))
@@ -369,10 +355,11 @@ class FlexApp(App):
 
     @on(OptionList.OptionSelected, "#list")
     def selected(self, event):
+        self.selected_key = event.option.id
         if self.section == "models":
-            self.start_model(event.option.id)
+            self.start_model(self.current())
         else:
-            self.account_details(event.option.id)
+            self.account_details(self.current())
 
     @work(exclusive=True, group="operations")
     async def start_model(self, label):
@@ -394,10 +381,7 @@ class FlexApp(App):
     @work(exclusive=True, group="operations")
     async def add_flow(self):
         try:
-            if self.section == "accounts":
-                await self.add_account()
-            else:
-                await self.add_model()
+            await self.add_account()
             self.draw()
             self.refresh_usage()
         except (FlexError, OSError, ValueError) as exc:
@@ -440,9 +424,8 @@ class FlexApp(App):
     def account_connected(self, provider):
         target = "claude-oauth" if provider == "claude" else "codex"
         models = self.store.load()["models"]
-        self.selection["models"] = next((index for index, model in enumerate(models.values()) if model["provider"] == target), 0)
-        self.section = "models"
-        self.query_one(Tabs).active = "models"
+        label = next((label for label, model in models.items() if model["provider"] == target), None)
+        self.selected_key = f"model:{label}" if label else None
         self.message("Account connected. Choose a model and press Enter.")
 
     async def add_model(self):
@@ -559,16 +542,14 @@ class FlexApp(App):
     @work(exclusive=True, group="operations")
     async def settings_flow(self):
         try:
-            action = await self.push_screen_wait(Choice("Settings", [("default", "Make selected model the default"), ("remove", "Remove selected model"), ("pool", "Account pool"), ("all", "Enable all accounts"), ("desktop", "Update Claude Desktop profile"), ("launch", "Open Claude Desktop"), ("backend", "Prepare gateway"), ("stop", "Stop gateway")]))
+            action = await self.push_screen_wait(Choice("Settings", [("model", "Connect another model or provider"), ("default", "Make selected model the default"), ("remove", "Remove selected model"), ("pool", "Account pool"), ("all", "Enable all accounts"), ("desktop", "Update Claude Desktop profile"), ("launch", "Open Claude Desktop"), ("stop", "Stop gateway")]))
+            if action == "model":
+                await self.add_model()
             if action == "default" and self.section == "models" and self.current():
                 service.use_model(self.store, self.current())
             elif action == "remove" and self.section == "models" and self.current():
                 label = self.current()
-                def remove(config):
-                    del config["models"][label]
-                    if config["active"] == label:
-                        config["active"] = next(iter(config["models"]), None)
-                self.store.mutate(remove)
+                service.remove_model(self.store, label)
                 render(self.store)
             elif action == "pool":
                 strategy = await self.push_screen_wait(Choice("Account distribution", [(key, key.replace("-", " ").title()) for key in sorted(STRATEGIES)]))

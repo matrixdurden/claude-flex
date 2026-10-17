@@ -1,16 +1,11 @@
 Screen { background: #101215; color: #d6d9de; align: center middle; }
 #shell { width: 86; max-width: 96%; height: auto; max-height: 92%; padding: 1 2; }
-#brand { height: 3; padding-left: 1; }
-Tabs { width: 100%; height: 3; margin-bottom: 1; }
-Tab { padding: 0 2; color: #858b96; }
-Tab.-active { color: #a8d5bc; text-style: bold; }
-Underline { display: none; }
-#columns { height: 2; padding: 0 1; }
+#brand { height: 2; padding-left: 1; }
 OptionList { background: transparent; border: none; padding: 0; height: auto; max-height: 18; min-height: 3; }
 OptionList > .option-list--option { padding: 0 1; }
 OptionList > .option-list--option-highlighted { background: #212a27; color: #e1eee7; text-style: none; }
 OptionList:focus { border: none; }
-#detail { color: #858b96; height: auto; min-height: 2; max-height: 4; padding: 1; }
+#detail { color: #858b96; height: auto; max-height: 3; padding: 0 1; }
 #message { height: auto; max-height: 3; padding: 0 1; }
 #keys { margin-top: 1; height: auto; padding: 0 1; }
 .hint, .muted { color: #858b96; }

@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from textual.widgets import Input, OptionList
+from textual.widgets import Input, OptionList, Tabs
 
 from claude_flex import accounts, service
 from claude_flex.store import Store
@@ -55,16 +55,19 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
         accounts.import_account(self.store, "main", accounts.normalize({"access": token()}))
         service.add_model(self.store, "plus", "codex", "synthetic-model", "GPT / Plus")
 
-    async def test_two_tabs_account_limits_and_keyboard_toggle(self):
+    async def test_models_and_accounts_share_one_page_with_keyboard_navigation(self):
         app = FlexApp(self.store, usage=FakeUsage())
         async with app.run_test(size=(100, 32)) as pilot:
             await pilot.pause()
             self.assertEqual(app.section, "models")
-            await pilot.press("tab")
+            self.assertFalse(list(app.query(Tabs)))
+            self.assertIn("GPT", app.export_screenshot())
+            self.assertIn("29%", app.export_screenshot())
+            await pilot.press("down")
             await pilot.pause()
             self.assertEqual(app.section, "accounts")
             self.assertEqual(app.current(), "main")
-            text = str(app.listing.get_option_at_index(0).prompt)
+            text = str(app.listing.get_option_at_index(app.listing.highlighted).prompt)
             self.assertIn("29%", text)
             self.assertIn("85%", text)
             self.assertIn("29%", app.export_screenshot())
@@ -72,14 +75,14 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("space")
             await pilot.pause(0.3)
             self.assertFalse(self.store.load()["accounts"]["main"]["enabled"])
-            await pilot.press("tab")
+            await pilot.press("up")
             await pilot.pause()
             self.assertEqual(app.section, "models")
 
     async def test_account_add_flow_is_inside_terminal_and_escape_returns(self):
         app = FlexApp(self.store, usage=FakeUsage())
         async with app.run_test() as pilot:
-            await pilot.press("tab", "a")
+            await pilot.press("a")
             await pilot.pause()
             self.assertIsInstance(app.screen, Choice)
             await pilot.press("enter")
@@ -98,7 +101,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             pass
         app.backend = backend
         async with app.run_test() as pilot:
-            await pilot.press("tab", "a")
+            await pilot.press("a")
             await pilot.pause()
             await pilot.press("enter")  # Claude
             await pilot.pause()
@@ -119,7 +122,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             pass
         app.backend = backend
         async with app.run_test() as pilot:
-            await pilot.press("tab", "a")
+            await pilot.press("a")
             await pilot.pause()
             await pilot.press("down", "enter")  # ChatGPT
             await pilot.pause()
@@ -139,7 +142,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
         app.backend = backend
         with patch("claude_flex.tui.service.open_browser") as browser:
             async with app.run_test() as pilot:
-                await pilot.press("tab", "a")
+                await pilot.press("a")
                 await pilot.pause()
                 await pilot.press("enter")  # Claude
                 await pilot.pause()
@@ -156,7 +159,9 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
     async def test_model_form_can_be_completed_without_shell_commands(self):
         app = FlexApp(self.store, usage=FakeUsage())
         async with app.run_test() as pilot:
-            await pilot.press("a")
+            await pilot.press("s")
+            await pilot.pause()
+            await pilot.press("enter")  # Connect another model/provider
             await pilot.pause()
             await pilot.press("enter")  # Codex source
             await pilot.pause()
@@ -179,16 +184,26 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(app.main_screen())
             self.assertIsInstance(app.focused, OptionList)
 
-    async def test_first_run_starts_on_empty_accounts_without_setup_commands(self):
+    async def test_first_run_can_connect_without_tabs_or_setup_commands(self):
         store = Store(Path(self.temp.name) / "fresh")
         store.init()
         app = FlexApp(store, usage=FakeUsage())
         async with app.run_test() as pilot:
             await pilot.pause()
-            self.assertEqual(app.section, "accounts")
+            self.assertFalse(list(app.query(Tabs)))
+            self.assertIsNone(app.current())
             await pilot.press("a")
             await pilot.pause()
             self.assertIsInstance(app.screen, Choice)
+
+    async def test_duplicate_gpt_connections_are_one_visible_model(self):
+        self.store.mutate(lambda config: config["models"].update({"duplicate": {**config["models"]["plus"], "label": "Same GPT"}}))
+        app = FlexApp(self.store, usage=FakeUsage())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            self.assertEqual(len([kind for kind, _ in app.entries.values() if kind == "models"]), 1)
+            self.assertEqual(len(self.store.load()["models"]), 1)
+            self.assertEqual(self.store.load()["active"], "plus")
 
     async def test_enter_hands_selected_profile_to_real_launcher(self):
         launch = Mock(return_value=0)

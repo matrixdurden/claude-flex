@@ -33,10 +33,55 @@ def add_model(store, label, provider, upstream, display=None, context=200000):
             raise FlexError("Model profile already exists.")
         if provider not in config["providers"]:
             raise FlexError("Unknown provider.")
+        if any(model["provider"] == provider and model["id"] == upstream and model.get("context", 200000) == context for model in config["models"].values()):
+            raise FlexError("This model is already connected.")
+        config.get("model_redirects", {}).pop(label, None)
         config["models"][label] = {"provider": provider, "id": upstream, "label": display or label, "context": context}
         if not config["active"]:
             config["active"] = label
 
+    store.mutate(change)
+
+
+def merge_duplicate_models(store: Store):
+    """Merge identical connections, retaining aliases used by existing sessions."""
+    config = store.load()
+    groups = {}
+    for label, model in config["models"].items():
+        groups.setdefault((model["provider"], model["id"], model.get("context", 200000)), []).append(label)
+    if not any(len(labels) > 1 for labels in groups.values()):
+        return
+
+    def change(current):
+        redirects = current.setdefault("model_redirects", {})
+        for labels in groups.values():
+            if len(labels) < 2 or not all(label in current["models"] for label in labels):
+                continue
+            keeper = current["active"] if current["active"] in labels else labels[0]
+            model = current["models"][keeper]
+            # Prefer the explicit model name to legacy subscription-only labels.
+            for label in labels:
+                display = current["models"][label].get("label", "")
+                if model.get("label") in {"GPT (ChatGPT Plus)", "GPT / Plus", "GPT"} and display not in {"GPT (ChatGPT Plus)", "GPT / Plus", "GPT", ""}:
+                    model["label"] = display
+            for label in labels:
+                if label == keeper:
+                    continue
+                del current["models"][label]
+                redirects[label] = keeper
+                for source, target in list(redirects.items()):
+                    if target == label:
+                        redirects[source] = keeper
+
+    store.mutate(change)
+
+
+def remove_model(store: Store, label: str):
+    def change(config):
+        del config["models"][label]
+        config["model_redirects"] = {key: target for key, target in config.get("model_redirects", {}).items() if target != label}
+        if config["active"] == label:
+            config["active"] = next(iter(config["models"]), None)
     store.mutate(change)
 
 
@@ -76,6 +121,7 @@ def next_account_name(store: Store, provider: str) -> str:
 
 
 def run_claude(store: Store, profile=None, args=()) -> int:
+    merge_duplicate_models(store)
     binary = shutil.which("claude")
     if not binary:
         raise FlexError("Claude Code CLI is not installed. Install Claude Code, then reopen Flex.")

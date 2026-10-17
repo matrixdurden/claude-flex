@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for improving Claude Flex. Keep the everyday experience small:
-two tabs, keyboard navigation and progressive disclosure of advanced settings.
+one screen, keyboard navigation and progressive disclosure of advanced settings.
 
 ## Local setup
 

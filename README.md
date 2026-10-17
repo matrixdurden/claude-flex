@@ -11,7 +11,7 @@ ChatGPT accounts, and see your remaining limits without memorizing commands.
 [![License: MIT](https://img.shields.io/badge/license-MIT-a8d5bc)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-858b96)](pyproject.toml)
 
-![Claude Flex models](docs/assets/models.svg)
+![Claude Flex](docs/assets/overview.svg)
 
 </div>
 
@@ -35,7 +35,11 @@ The model gateway is downloaded and checksum-verified automatically the first
 time it's needed. Claude Flex launches your existing `claude` executable in
 the current project directory; your code stays in Claude Code's own workflow.
 
-## Two tabs
+## One screen
+
+Models and connected accounts share one list. No tabs or page switching.
+Move down from a model to an account with the same arrow keys; remaining
+limits are visible alongside your accounts.
 
 ### Models
 
@@ -48,14 +52,13 @@ Code to return to Flex. Separate sessions keep their selected model.
 - Ollama and LM Studio for models running on your own hardware.
 - OpenAI, Anthropic, Gemini, Groq, GitHub Models, or a compatible custom API.
 
-Press **a** to connect a source and choose a model. API keys are entered in a
+Press **a** to connect an account; its model presets appear automatically.
+For other sources, use **s → Connect another model or provider**. API keys are entered in a
 masked field. Model IDs and context sizes can also be entered manually.
 Models must support reliable tool calls to be useful coding agents; protocol
 compatibility alone doesn't guarantee agent quality.
 
 ### Accounts
-
-![Claude Flex accounts](docs/assets/accounts.svg)
 
 Claude and ChatGPT accounts use the same controls:
 
@@ -97,8 +100,7 @@ times. Additional provider/model windows appear in account details.
 | --- | --- |
 | `↑` / `↓` | Select a row |
 | `Enter` | Launch model / open account details |
-| `Tab` | Switch Models / Accounts |
-| `a` | Add model / account |
+| `a` | Connect an account; model presets are added automatically |
 | `Space` | Toggle account in pool |
 | `r` | Refresh limits |
 | `d` | Make selected model the default |
@@ -108,6 +110,8 @@ times. Additional provider/model windows appear in account details.
 
 No dashboard, browser management server, telemetry, or giant command menu.
 The browser opens only when you sign in to a provider.
+Identical model connections appear once. Existing duplicates are merged while
+keeping the active selection and legacy routing aliases for running sessions.
 
 ## Claude Desktop, optionally
 

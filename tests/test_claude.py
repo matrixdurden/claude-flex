@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from claude_flex import accounts, service
-from claude_flex.compiler import compile_gateway, model_alias
+from claude_flex.compiler import choose, compile_gateway, model_alias
 from claude_flex.store import FlexError, Store, read_json
 from claude_flex.usage import fetch_usage, normalize_claude_usage
 from tests.helpers import token
@@ -85,6 +85,29 @@ class ClaudeTests(unittest.TestCase):
         accounts.import_account(self.store, "claude", accounts.normalize(claude_credential()))
         self.assertEqual(service.next_account_name(self.store, "claude"), "claude-2")
         self.assertEqual(service.next_account_name(self.store, "codex"), "chatgpt")
+
+    def test_duplicate_models_merge_without_breaking_running_aliases(self):
+        service.add_model(self.store, "plus", "codex", "gpt-6.1-sol", "GPT (ChatGPT Plus)")
+        self.store.mutate(lambda config: config["models"].update({"gpt": {**config["models"]["plus"], "label": "GPT-6.1 Sol"}}))
+        service.merge_duplicate_models(self.store)
+        config = self.store.load()
+        self.assertEqual(list(config["models"]), ["plus"])
+        self.assertEqual(config["active"], "plus")
+        self.assertEqual(config["models"]["plus"]["label"], "GPT-6.1 Sol")
+        self.assertEqual(choose(config, "gpt")[0], "plus")
+        aliases = compile_gateway(self.store)["oauth"]["model-alias"]["codex"]
+        self.assertEqual({item["alias"] for item in aliases}, {model_alias("plus"), model_alias("gpt")})
+        service.merge_duplicate_models(self.store)
+        self.assertEqual(config, self.store.load())
+
+    def test_same_model_cannot_be_added_twice_but_distinct_sources_are_kept(self):
+        service.add_model(self.store, "one", "codex", "shared-id")
+        with self.assertRaises(FlexError):
+            service.add_model(self.store, "duplicate", "codex", "shared-id")
+        service.add_model(self.store, "other", "claude-oauth", "shared-id")
+        service.add_model(self.store, "context", "codex", "shared-id", context=32768)
+        service.merge_duplicate_models(self.store)
+        self.assertEqual(len(self.store.load()["models"]), 3)
 
 
 if __name__ == "__main__":

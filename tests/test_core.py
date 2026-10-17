@@ -20,7 +20,7 @@ class CoreTests(unittest.TestCase):
         self.store.init()
 
     def model(self, label="plus"):
-        add_model(self.store, label, "codex", "test-upstream", "Test model")
+        add_model(self.store, label, "codex", "test-upstream" if label == "plus" else f"test-upstream-{label}", "Test model")
 
     def test_init_is_idempotent_and_credentials_are_separate(self):
         secret = self.store.secrets()["gateway_key"]

@@ -16,8 +16,9 @@ def model_alias(label: str) -> str:
 
 def choose(config: dict, label: str | None = None) -> tuple[str, dict]:
     label = label or config.get("active")
+    label = config.get("model_redirects", {}).get(label, label)
     if not label or label not in config["models"]:
-        raise FlexError("Select a profile: models add NAME --provider NAME --id MODEL, then models use NAME.")
+        raise FlexError("Connect an account in Claude Flex to choose a model.")
     model = config["models"][label]
     if not config["providers"][model["provider"]].get("enabled", True):
         raise FlexError("This profile's provider is disabled.")
@@ -32,7 +33,7 @@ def compile_gateway(store: Store, *, auth_dir=None) -> dict:
         provider = config["providers"][model["provider"]]
         if not provider.get("enabled", True):
             continue
-        aliases = [model_alias(label)]
+        aliases = [model_alias(label)] + [model_alias(source) for source, target in config.get("model_redirects", {}).items() if target == label]
         if provider["kind"] in {"codex", "claude-oauth"}:
             channel = "claude" if provider["kind"] == "claude-oauth" else "codex"
             oauth.setdefault(channel, []).extend(

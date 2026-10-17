@@ -2,7 +2,7 @@
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup, checks and contribution notes.
 
-- `tui.py` / `tui.tcss`: two-tab terminal interface and modal workflows.
+- `tui.py` / `tui.tcss`: single-screen terminal interface and modal workflows.
 - `service.py`: UI-independent model setup and Claude Code launch.
 - `accounts.py` / `login.py`: named OAuth accounts and browser login jobs.
 - `usage.py`: read-only Claude/Codex quota parsing and cache.
