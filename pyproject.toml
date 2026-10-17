@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-flex"
+version = "0.3.0"
+description = "A minimal terminal interface for Claude Code models and account pools"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["textual>=3.0,<7"]
+
+[project.urls]
+Homepage = "https://github.com/matrixdurden/claude-flex"
+Repository = "https://github.com/matrixdurden/claude-flex"
+Issues = "https://github.com/matrixdurden/claude-flex/issues"
+
+[project.scripts]
+claude-flex = "claude_flex.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claude_flex"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

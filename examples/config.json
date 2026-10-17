@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "gateway": {"port": 8318, "binary": ""},
+  "routing": {"strategy": "round-robin", "sticky": true},
+  "active": "free",
+  "providers": {
+    "codex": {"kind": "codex", "enabled": true, "keys": []},
+    "router": {
+      "kind": "openai",
+      "base_url": "https://openrouter.ai/api/v1",
+      "enabled": true,
+      "no_auth": false,
+      "keys": [{"name": "default", "env": "OPENROUTER_API_KEY", "weight": 1}]
+    }
+  },
+  "models": {
+    "free": {"provider": "router", "id": "openrouter/free", "label": "OpenRouter Free", "context": 200000}
+  },
+  "accounts": {}
+}

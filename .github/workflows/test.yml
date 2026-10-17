@@ -1,0 +1,32 @@
+name: Tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  unit:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.11', '3.14']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install .
+      - run: python -m unittest discover -s tests -v
+      - run: python -m pip install ruff
+      - run: ruff check .
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m pip install .
+      - run: python -c "from claude_flex.store import Store; from claude_flex.gateway import install; s=Store(); s.init(); install(s)"
+      - run: python -m unittest tests.test_integration -v
+        env:
+          CLAUDE_FLEX_TEST_BACKEND: /home/runner/.config/claude-flex/bin/cli-proxy-api
