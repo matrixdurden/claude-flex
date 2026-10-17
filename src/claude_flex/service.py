@@ -6,13 +6,11 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 import time
 import webbrowser
 from pathlib import Path
 
-from . import accounts
-from .compiler import choose, cli_settings
+from . import accounts, integration
 from .gateway import Gateway, find_binary, install
 from .providers import discover
 from .store import FlexError, Store, read_json, write_json
@@ -23,6 +21,22 @@ def ensure_backend(store: Store):
         return find_binary(store)
     except FlexError:
         return install(store)
+
+
+def native_claude() -> str:
+    binary = shutil.which("claude")
+    if not binary:
+        raise FlexError("Claude Code CLI is not installed. Install Claude Code, then reopen Flex.")
+    try:
+        version = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=15, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise FlexError("Claude Code could not start. Check its installation.") from None
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", version.stdout)
+    if version.returncode or not match:
+        raise FlexError("Claude Code's version could not be read. Check its installation.")
+    if tuple(map(int, match.groups())) < (2, 1, 242):
+        raise FlexError("Update Claude Code to 2.1.242 or later to select provider models in /model.")
+    return binary
 
 
 def add_model(store, label, provider, upstream, display=None, context=200000):
@@ -154,6 +168,8 @@ def sync_models(store: Store, *, providers=None, force=False) -> dict:
         from .compiler import render
 
         render(store)
+    if report["added"]:
+        integration.refresh_if_connected(store)
     return report
 
 
@@ -166,29 +182,36 @@ def next_account_name(store: Store, provider: str) -> str:
     return label
 
 
-def run_claude(store: Store, profile=None, args=()) -> int:
-    merge_duplicate_models(store)
-    binary = shutil.which("claude")
-    if not binary:
-        raise FlexError("Claude Code CLI is not installed. Install Claude Code, then reopen Flex.")
-    settings = cli_settings(store, profile)
-    gateway = Gateway(store)
+def activate_account(store: Store, label: str, *, settings_path: Path | None = None):
+    native_claude()
     ensure_backend(store)
-    gateway.start()
-    gateway.wait_for_model(settings["model"])
+    accounts.select_accounts(store, label)
+    report = sync_models(store, force=True)
+    Gateway(store).start()
+    path = integration.apply(store, settings_path)
+    return {"settings_path": str(path), "catalog_errors": report["errors"]}
+
+
+def run_claude(store: Store, account=None, args=()) -> int:
+    merge_duplicate_models(store)
+    binary = native_claude()
+    config = store.load()
+    selected = account or config.get("selected_account")
+    if selected is None:
+        selected = next((key for key, value in config["accounts"].items() if value["enabled"]), None)
+    if selected is None:
+        raise FlexError("Connect and select an account in Claude Flex first.")
+    if account or not (store.home / "integration.json").exists():
+        activate_account(store, selected)
+    else:
+        ensure_backend(store)
+        sync_models(store)
+        Gateway(store).start()
+        integration.refresh_if_connected(store)
     env = os.environ.copy()
-    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"):
+    for key in integration.LEGACY_ENV | {"ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"}:
         env.pop(key, None)
-    env.update(settings["env"])
-    with tempfile.TemporaryDirectory(prefix="session-", dir=store.runtime) as directory:
-        path = Path(directory) / "settings.json"
-        write_json(path, settings)
-        return subprocess.run([binary, "--settings", str(path), "--model", settings["model"], *args], env=env, check=False).returncode
-
-
-def use_model(store: Store, label: str):
-    choose(store.load(), label)
-    store.mutate(lambda config: config.update(active=label))
+    return subprocess.run([binary, *args], env=env, check=False).returncode
 
 
 def suggest_name(upstream: str) -> str:

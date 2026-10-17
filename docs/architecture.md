@@ -8,15 +8,22 @@ Claude Code CLI or Desktop → local CLIProxyAPI → selected provider
 
 ## Ownership
 
-- **Claude Flex:** TUI, named profiles, account labels, local process lifecycle.
+- **Claude Flex:** account switching TUI, account labels, native connection settings and local process lifecycle.
 - **CLIProxyAPI:** protocol conversion, streaming, tool translation, OAuth token
   renewal, credential scheduling, quota cooldowns and retry/failover.
-- **Claude Code:** agent loop, prompts, files, terminal tools and permissions.
+- **Claude Code:** model selection, agent loop, prompts, files, terminal tools and permissions.
 
-The TUI suspends its alternate screen while launching the installed `claude`
-executable. The subprocess inherits the project working directory, normal
-permissions and project setup. Each launch receives a separate temporary settings
-file; global Claude Code settings are not rewritten.
+The TUI shows accounts only. Enter activates the selected account and updates
+the native Claude Code user settings with connection credentials and the
+`modelPicker` lineup. Model IDs and display labels are genuine provider IDs,
+not Claude-family aliases. An original settings backup stays in private Flex
+state; unrelated permissions and preferences remain intact.
+
+Users then run the installed `claude` directly and select models in `/model`.
+The optional launcher does not inject `--model`, temporary session settings,
+family-model pins or subagent-model pins. The native user's model choice is
+preserved across same-provider account changes. A cross-provider switch picks
+an available starting model, which remains changeable in the native menu.
 
 ## Catalog discovery
 
@@ -32,7 +39,8 @@ and enabled account identities. Newly enabled/connected accounts invalidate
 that signature. Discovery adds profiles while preserving existing names,
 explicit context settings, the default selection, and legacy aliases.
 Failed queries do not erase existing routes. Image/audio-only and hidden
-entries are excluded from the coding-model selector.
+entries are excluded from the native Claude Code model picker. No model rows
+or model selection workflows are rendered in Flex.
 
 ## User state
 
@@ -45,7 +53,8 @@ runtime/
   gateway.json       compiled CLIProxyAPI v8 config (JSON is valid YAML)
   gateway.log
   process.json       PID, checked against its command before signaling
-  session-*/         temporary per-launch Claude settings
+integration.json     native settings path that Flex connected
+backups/             original native user settings backup
 ```
 
 JSON writes use atomic replacement. CLI mutations use advisory file locks.
@@ -63,11 +72,16 @@ OAuth accounts are marked `codex` or `claude`. The corresponding model sources
 are `codex` and `claude-oauth`; API-key Anthropic connections use the distinct
 `claude` provider kind. Selecting one account pauses only its provider peers.
 
-Every profile has a stable, unique compatibility alias. It compiles into the
-matching `oauth.model-alias` channel or the corresponding API-key executor.
-Generic Claude-family aliases are not injected across providers: this avoids
-native Claude accounts accidentally serving a GPT route. Session model aliases
-are deterministic, so changing a default doesn't retarget existing sessions.
+OAuth model requests use native provider IDs. API-key routes use provider-prefixed
+IDs to distinguish overlapping upstream names. Stable old compatibility aliases
+remain only for older sessions, not in the visible picker. Claude Code's Default
+choice can normalize an unknown ID with a `claude-` prefix; that compatibility
+route maps back to the same GPT model, without impersonating Sonnet.
+
+The native menu replaces unavailable built-in options and limits the Default
+entry to configured routes. Selected-account metadata filters subscription
+models to the active account provider. Main-model and subagent-model overrides
+from the earlier Flex launcher are removed when connecting native settings.
 
 Independent OAuth logins run in temporary directories. The callback URL is
 captured without exposing raw subprocess output to the TUI. A pasted localhost

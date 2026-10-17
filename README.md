@@ -2,20 +2,21 @@
 
 # claude flex
 
-**Your models. Your accounts. Claude Code.**
+**Choose your account. Pick your model in Claude Code.**
 
-A quiet terminal interface for Claude Code — switch models, manage Claude and
-ChatGPT accounts, and see your remaining limits without memorizing commands.
+A minimal terminal account switcher for Claude Code. Manage Claude and ChatGPT
+sign-ins, see remaining limits, and keep model selection in Claude Code's own
+`/model` menu.
 
 [![Tests](https://github.com/matrixdurden/claude-flex/actions/workflows/test.yml/badge.svg)](https://github.com/matrixdurden/claude-flex/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-a8d5bc)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-858b96)](pyproject.toml)
 
-![Claude Flex](docs/assets/overview.svg)
+![Claude Flex accounts](docs/assets/overview.svg)
 
 </div>
 
-## Start here
+## Use it
 
 Install [Claude Code](https://code.claude.com/docs/en/setup) and
 [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
@@ -25,134 +26,96 @@ uv tool install git+https://github.com/matrixdurden/claude-flex.git
 claude-flex
 ```
 
-That's the everyday interface. **No subcommand is required.**
+1. **a** → choose Claude / ChatGPT → choose a sign-in method → sign in.
+2. Select an account and press **Enter** to connect it to Claude Code.
+3. Use your normal **`claude`** command. Choose the model with **`/model`**.
 
-From a local checkout: `uv tool install .`, or `uv sync` followed by
-`uv run claude-flex`. Python 3.11+ is required. Works on Linux, macOS, Windows
-and WSL. Claude Desktop is optional.
+That's the separation: **Flex selects accounts; Claude Code selects models.**
+No model list, model picker or model-launch buttons appear in Flex. Your native
+model choice is preserved when switching accounts of the same provider.
 
-The model gateway is downloaded and checksum-verified automatically the first
-time it's needed. Claude Flex launches your existing `claude` executable in
-the current project directory; your code stays in Claude Code's own workflow.
+Daily coding uses `claude` directly; reopen Flex only to change accounts or
+inspect limits. You can also open Claude Code from **s → Open Claude Code**.
+Claude Desktop is optional. Linux, macOS, Windows and WSL are supported.
 
-## One screen
+## Accounts
 
-Models and connected accounts share one list. No tabs or page switching.
-Move down from a model to an account with the same arrow keys; remaining
-limits are visible alongside your accounts.
+- Claude Pro / Max browser sign-in, or a copyable sign-in link.
+- ChatGPT / Codex browser sign-in, device code, or existing OpenCode sign-in.
+- Separate credentials per account; refresh ownership is not cloned from an
+  actively running external client.
+- Automatic account names and duplicate-identity detection.
+- Account renewal, enable/pause, removal, weights and provider-specific pools.
 
-### Models
+Pressing Enter enables the chosen account within its provider pool and updates
+the Claude Code connection. Other providers' accounts aren't disabled. Changes
+may briefly restart the gateway; finish an active generation before switching.
 
-Choose a model, press **Enter**, and work in the real Claude Code. Exit Claude
-Code to return to Flex. Separate sessions keep their selected model.
+## Models belong in `/model`
 
-- Claude subscription models through your own Claude Pro / Max accounts.
-- GPT models through your own ChatGPT / Codex accounts.
-- OpenRouter, including discovery of free models declaring tool support.
-- Ollama and LM Studio for models running on your own hardware.
-- OpenAI, Anthropic, Gemini, Groq, GitHub Models, or a compatible custom API.
+Flex loads live conversational model catalogs from connected providers and
+publishes them to the native Claude Code picker. GPT models use their actual
+IDs, such as `gpt-6.1-sol`, and their real display names — not Sonnet-shaped
+aliases. The built-in picker is limited to the connected routes.
 
-All conversational models returned by your connected providers are loaded
-automatically at startup and after sign-in. Flex combines account catalogs
-without duplicate rows; no hard-coded three-model menu is used. Catalogs
-refresh every five minutes, or immediately with **r**. If discovery fails,
-existing profiles remain available.
+The connection does **not** pass a forced `--model` flag, map every Claude tier
+to one GPT model, or pin subagents to a Flex-selected model. The normal Claude
+Code model selection remains in control. Older running-session aliases are kept
+only as backward-compatible gateway routes, not as visible picker rows.
 
-Press **a** to connect an account; its live model list appears automatically.
-For other sources, use **s → Connect another model or provider**. API keys are entered in a
-masked field. Model IDs and context sizes can also be entered manually.
-Models must support reliable tool calls to be useful coding agents; protocol
-compatibility alone doesn't guarantee agent quality.
+Claude Code **2.1.242+** is required for custom native picker rows; use an
+up-to-date version for the latest behavior. Provider model support and usage
+limits still apply. Models need reliable tool-call support to act as coding agents.
 
-### Accounts
+OpenAI, Anthropic, Gemini, OpenRouter, Groq, GitHub Models, Ollama, LM Studio
+and compatible API sources can be connected under **s → Connect an API provider**.
+API keys use a masked input. Discovered models appear in Claude Code, not Flex.
 
-Claude and ChatGPT accounts use the same controls:
-
-- **a** — choose Claude / ChatGPT, choose a sign-in method, then sign in.
-- **Space** — enable or pause the selected account.
-- **Enter** — details, renewal, account selection, weight, priority, or removal.
-- **r** — refresh limits and model lists.
-
-No account-name, weight, or model form is shown during sign-in. Accounts are
-named automatically (`claude`, `claude-2`, `chatgpt`, …), and the provider's
-live model list appears immediately after a successful connection.
-Available sign-in methods include browser, a copyable link, and ChatGPT device
-codes; existing OpenCode ChatGPT sign-in is under ChatGPT's sign-in methods.
-
-The provider's own sign-in page handles your password. Independent logins keep
-separate refresh tokens; the gateway owns their renewal. Duplicate account
-identities are rejected. Existing OpenCode ChatGPT access can also be linked
-without copying its refresh token.
-
-**Claude and ChatGPT pools stay separate.** Selecting a single Claude account
-does not disable ChatGPT accounts. Round-robin, weighted round-robin, fill-first
-and sticky sessions are available under **s → Account pool**. Account-setting
-changes may briefly restart the gateway, so finish an active generation first.
-
-### Limits, honestly displayed
+## Limits
 
 The account list shows **remaining** short/long-window percentages and reset
-times. Additional provider/model windows appear in account details.
+times. Detailed provider/model windows are under **s → Selected account details**.
 
-- ChatGPT accounts: **Codex** usage, not general ChatGPT chat-message quotas.
-- Claude accounts: the usage windows returned by Claude's OAuth usage service.
-- Missing data stays **—**. A `*` marks a stale, previously successful value.
-- Usage queries are read-only and cached. Background refresh runs every minute.
-- Other API providers' billing/quotas aren't reported as subscription limits.
+- ChatGPT accounts: **Codex usage**, not general ChatGPT chat-message quotas.
+- Claude accounts: provider-returned Claude OAuth usage windows.
+- Unknown values stay **—**; a `*` marks a stale successful snapshot.
+- Quota queries are read-only and cached, with background refresh every minute.
+- A 429 usage-limit response is a provider quota limit; select another account
+  with available capacity or wait for its reset.
 
-## Keyboard
+## Keys
 
 | Key | Action |
 | --- | --- |
-| `↑` / `↓` | Select a row |
-| `Enter` | Launch model / open account details |
-| `a` | Connect an account; models are loaded automatically |
-| `Space` | Toggle account in pool |
-| `r` | Refresh limits and model catalogs |
-| `d` | Make selected model the default |
-| `s` | Settings, pool and optional Desktop integration |
-| `Esc` | Back / cancel sign-in |
-| `q` | Quit Flex; the gateway stays available to other sessions |
+| `↑` / `↓` | Choose an account |
+| `Enter` | Use the account in Claude Code |
+| `a` | Add an account |
+| `Space` | Enable/pause an account in the pool |
+| `r` | Refresh limits and the native model catalog |
+| `s` | Details, renewal, pools and optional Desktop integration |
+| `Esc` | Back/cancel sign-in |
+| `q` | Exit Flex; the selected connection remains available |
 
-No dashboard, browser management server, telemetry, or giant command menu.
-The browser opens only when you sign in to a provider.
-Identical model connections appear once. Existing duplicates are merged while
-keeping the active selection and legacy routing aliases for running sessions.
+## Connection and storage
 
-## Claude Desktop, optionally
+Selecting an account updates the native `~/.claude/settings.json` (or
+`CLAUDE_CONFIG_DIR/settings.json`) with the gateway connection and the `/model`
+lineup. An original-settings backup is stored privately in the Flex state folder.
+Unrelated preferences and permissions are preserved. Gateway and upstream
+credentials are never checked into this repository.
 
-Under **s → Update Claude Desktop profile**, Flex creates its own local profile
-without overwriting other saved profiles. Fully quit and reopen Claude Desktop,
-then select the third-party profile if prompted. On Windows, WSL integration
-detects your distribution and user paths automatically.
-
-Desktop model IDs use Claude-shaped compatibility aliases; display names show
-the actual profiles. The gateway maps them to your selected upstream models.
-This project is independent and is not endorsed by Anthropic or OpenAI.
-Gateway mode does not provide Anthropic-hosted cloud sessions or Remote Control.
-
-## A small automation surface
-
-Everything above is available through the TUI. Optional script hooks:
-
-```bash
-claude-flex run --profile gpt -- -p "Explain this project" --max-turns 3
-claude-flex check --profile gpt --tools
-claude-flex doctor
-claude-flex gateway stop
-```
-
-State is private and kept **outside the repository**:
-
-| Platform | Directory |
+| Platform | Private state directory |
 | --- | --- |
 | Linux / WSL | `~/.config/claude-flex` (or `$XDG_CONFIG_HOME/claude-flex`) |
 | macOS | `~/Library/Application Support/Claude-Flex` |
 | Windows | `%LOCALAPPDATA%\Claude-Flex` |
 
-Override with `CLAUDE_FLEX_HOME` or `claude-flex --home PATH`.
-The gateway listens only on `127.0.0.1:8318`. Credentials, generated connection
-profiles and logs belong in that user directory, never in Git.
+Override Flex state with `CLAUDE_FLEX_HOME` or `claude-flex --home PATH`.
+The verified gateway is prepared automatically and listens on loopback port 8318.
+There is no web management server or telemetry in Flex.
+
+Optional automation: `claude-flex run --account work -- -p "Hello"`,
+`claude-flex doctor`, and `claude-flex gateway stop`.
 
 ## Development
 
@@ -163,22 +126,19 @@ uvx ruff check .
 uv build
 ```
 
-Optional real-backend tests use a local synthetic upstream, with no cloud keys:
+Real-backend integration tests use a local synthetic provider:
 
 ```bash
 CLAUDE_FLEX_TEST_BACKEND=/path/to/cli-proxy-api uv run python -m unittest tests.test_integration -v
 ```
 
-Textual pilot tests exercise keyboard navigation, forms and account operations
-headlessly. README screenshots contain **synthetic data**, generated by
-`uv run python scripts/render_demo.py`.
+Tests and generated screenshots use synthetic credentials and make no cloud
+inference calls. [Contributing](CONTRIBUTING.md) ·
+[Architecture](docs/architecture.md) · [Türkçe](docs/README.tr.md)
 
-[Architecture](docs/architecture.md) · [Contributing](CONTRIBUTING.md) ·
-[Türkçe](docs/README.tr.md)
-
-## Credits & license
+## License
 
 [MIT](LICENSE). Built with [Textual](https://github.com/Textualize/textual) and
-[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). The pinned gateway
-is a separately downloaded MIT-licensed dependency; its source and binaries
-are not vendored here. Claude Code / Claude Desktop remain Anthropic products.
+[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), a separately downloaded
+MIT-licensed gateway. Claude Code and Claude Desktop are Anthropic products.
+This independent project is not endorsed by Anthropic or OpenAI.

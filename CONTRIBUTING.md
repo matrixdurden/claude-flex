@@ -1,7 +1,9 @@
 # Contributing
 
 Thanks for improving Claude Flex. Keep the everyday experience small:
-one screen, keyboard navigation and progressive disclosure of advanced settings.
+one account list, keyboard navigation and progressive disclosure of advanced
+settings. Model selection belongs in Claude Code's native `/model` menu, never
+in a second Flex model picker.
 
 ## Local setup
 

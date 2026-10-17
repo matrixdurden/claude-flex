@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from . import __version__, desktop, service
-from .compiler import choose, model_alias
+from .compiler import choose, cli_model_id
 from .gateway import Gateway, find_binary
 from .providers import request_json
 from .service import add_model  # noqa: F401 - retained as an import for early integrations
@@ -16,12 +16,12 @@ from .store import FlexError, Store
 
 
 def parser():
-    root = argparse.ArgumentParser(prog="claude-flex", description="Your models. Your accounts. Claude Code.")
+    root = argparse.ArgumentParser(prog="claude-flex", description="Choose your account. Pick models inside Claude Code.")
     root.add_argument("--version", action="version", version=__version__)
     root.add_argument("--home", type=Path, help="Private state directory (or CLAUDE_FLEX_HOME).")
     commands = root.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Launch Claude Code directly for scripts.")
-    run.add_argument("--profile")
+    run.add_argument("--account")
     run.add_argument("args", nargs=argparse.REMAINDER)
     commands.add_parser("doctor", help="Print local setup status.")
     check = commands.add_parser("check", help="Verify a model connection.")
@@ -40,10 +40,11 @@ def check_model(store, args):
     gateway = Gateway(store)
     service.ensure_backend(store)
     gateway.start()
-    gateway.wait_for_model(model_alias(label))
+    model_id = cli_model_id(store.load(), label)
+    gateway.wait_for_model(model_id)
     headers = {"Authorization": "Bearer " + store.secrets()["gateway_key"], "anthropic-version": "2023-06-01"}
     messages = [{"role": "user", "content": "Reply with FLEX_OK."}]
-    body = {"model": model_alias(label), "max_tokens": 128, "messages": messages}
+    body = {"model": model_id, "max_tokens": 128, "messages": messages}
     if args.tools:
         body["tools"] = [{"name": "flex_probe", "description": "Connectivity probe; call with value 323.", "input_schema": {"type": "object", "properties": {"value": {"type": "integer"}}, "required": ["value"]}}]
         body["tool_choice"] = {"type": "tool", "name": "flex_probe"}
@@ -79,7 +80,7 @@ def main(argv=None):
             run_tui(store)
         elif args.command == "run":
             passthrough = args.args[1:] if args.args[:1] == ["--"] else args.args
-            result = service.run_claude(store, args.profile, passthrough)
+            result = service.run_claude(store, args.account, passthrough)
         elif args.command == "check":
             check_model(store, args)
         elif args.command == "gateway":

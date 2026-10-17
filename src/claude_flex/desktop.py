@@ -9,7 +9,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from .compiler import choose, desktop_profile, model_alias
+from .compiler import desktop_profile
 from .store import FlexError, Store, file_lock, read_json, write_json
 
 
@@ -79,8 +79,6 @@ def launch(store: Store):
 
     gateway = Gateway(store)
     gateway.start()
-    active, _ = choose(store.load())
-    gateway.wait_for_model(model_alias(active))
     if os.name == "nt" or os.environ.get("WSL_DISTRO_NAME"):
         powershell("Start-Process explorer.exe -ArgumentList 'shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude'")
     elif sys.platform == "darwin":

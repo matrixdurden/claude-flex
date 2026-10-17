@@ -241,6 +241,7 @@ def select_accounts(store: Store, label: str):
         for account in config["accounts"]:
             if label == "all" or provider_of(config["accounts"][account]) == provider_of(config["accounts"][label]):
                 update_account(store, account, enabled=label == "all" or account == label)
+        store.mutate(lambda current: current.update(selected_account=None if label == "all" else label))
 
 
 def remove_account(store: Store, label: str):
@@ -250,7 +251,11 @@ def remove_account(store: Store, label: str):
 
     with Gateway(store).paused():
         store.account_path(label).unlink(missing_ok=True)
-        store.mutate(lambda config: config["accounts"].pop(label))
+        def change(config):
+            config["accounts"].pop(label)
+            if config.get("selected_account") == label:
+                config["selected_account"] = None
+        store.mutate(change)
 
 
 def rename_account(store: Store, old: str, new: str):
@@ -271,6 +276,8 @@ def rename_account(store: Store, old: str, new: str):
                 if new in current["accounts"]:
                     raise FlexError("Account name is unavailable.")
                 current["accounts"][new] = current["accounts"].pop(old)
+                if current.get("selected_account") == old:
+                    current["selected_account"] = new
             store.mutate(change)
         except Exception:
             store.account_path(new).unlink(missing_ok=True)

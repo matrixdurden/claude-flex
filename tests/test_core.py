@@ -55,11 +55,14 @@ class CoreTests(unittest.TestCase):
     def test_profiles_do_not_change_when_default_changes(self):
         self.model("one")
         self.model("two")
-        before = cli_settings(self.store, "one")
+        before = cli_settings(self.store)
         self.store.mutate(lambda config: config.update(active="two"))
-        self.assertEqual(before, cli_settings(self.store, "one"))
+        self.assertEqual(before, cli_settings(self.store))
+        self.assertNotIn("model", before)
+        self.assertEqual([row["model"] for row in before["modelPicker"]["options"]], ["test-upstream-one", "test-upstream-two"])
+        self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", before["env"])
         self.assertNotEqual(model_alias("one"), model_alias("two"))
-        self.assertEqual(desktop_profile(self.store)["inferenceModels"][1]["name"], model_alias("one"))
+        self.assertEqual({row["name"] for row in desktop_profile(self.store)["inferenceModels"]}, {"test-upstream-one", "test-upstream-two"})
 
     def test_provider_key_pool_compiles_without_secret_in_public_config(self):
         add_provider(self.store, "router", preset="openrouter")
@@ -152,7 +155,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(read_json(path)["inferenceModels"][0]["labelOverride"], "Test model")
 
     def test_cli_passthrough_and_secret_not_in_parser(self):
-        args = parser().parse_args(["run", "--profile", "plus", "--", "-p", "hello", "--max-turns", "2"])
+        args = parser().parse_args(["run", "--account", "main", "--", "-p", "hello", "--max-turns", "2"])
         self.assertEqual(args.args, ["--", "-p", "hello", "--max-turns", "2"])
         self.assertNotIn("--api-key", parser().format_help())
 

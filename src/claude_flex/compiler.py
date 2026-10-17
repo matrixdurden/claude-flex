@@ -14,6 +14,30 @@ def model_alias(label: str) -> str:
     return f"claude-sonnet-4-6-flex-{label}-{digest}"
 
 
+def cli_model_id(config: dict, label: str) -> str:
+    model = config["models"][label]
+    kind = config["providers"][model["provider"]]["kind"]
+    return model["id"] if kind in {"codex", "claude-oauth"} else f"{model['provider']}/{model['id']}"
+
+
+def picker_models(config: dict) -> list[dict]:
+    selected = config.get("selected_account")
+    meta = config["accounts"].get(selected, {})
+    channel = meta.get("provider", "codex") if meta else None
+    rows, seen = [], set()
+    for label, model in config["models"].items():
+        provider = config["providers"][model["provider"]]
+        if not provider.get("enabled", True):
+            continue
+        if channel and provider["kind"] in {"codex", "claude-oauth"} and provider["kind"] != ("claude-oauth" if channel == "claude" else "codex"):
+            continue
+        identity = cli_model_id(config, label)
+        if identity not in seen:
+            rows.append({"model": identity, "label": model.get("label", model["id"]), "description": "ChatGPT" if provider["kind"] == "codex" else "Claude" if provider["kind"] == "claude-oauth" else model["provider"]})
+            seen.add(identity)
+    return rows
+
+
 def choose(config: dict, label: str | None = None) -> tuple[str, dict]:
     label = label or config.get("active")
     label = config.get("model_redirects", {}).get(label, label)
@@ -36,11 +60,17 @@ def compile_gateway(store: Store, *, auth_dir=None) -> dict:
         aliases = [model_alias(label)] + [model_alias(source) for source, target in config.get("model_redirects", {}).items() if target == label]
         if provider["kind"] in {"codex", "claude-oauth"}:
             channel = "claude" if provider["kind"] == "claude-oauth" else "codex"
+            if provider["kind"] == "codex":
+                # Claude Code's built-in Default choice normalizes unknown
+                # provider IDs with a claude- prefix. Keep that route working
+                # without exposing a second row or pretending GPT is Sonnet.
+                aliases.append("claude-" + model["id"])
             oauth.setdefault(channel, []).extend(
                 {"name": model["id"], "alias": alias, "fork": True} for alias in aliases
             )
             continue
         kind = "openai-compatibility" if provider["kind"] == "openai" else "codex" if provider["kind"] == "responses" else provider["kind"]
+        aliases.append(cli_model_id(config, label))
         group_key = (kind, model["provider"])
         if group_key not in groups:
             groups[group_key] = {
@@ -68,6 +98,7 @@ def compile_gateway(store: Store, *, auth_dir=None) -> dict:
             "retry": {"request-retry": 2, "max-retry-interval": 15},
         },
         "requests": {"streaming": {"keepalive-seconds": 15}},
+        "upstream": {"claude": {"disable-cloaking-model-list": True}},
     }
 
 
@@ -82,40 +113,27 @@ def render(store: Store):
     return path
 
 
-def cli_settings(store: Store, label: str | None = None) -> dict:
-    label, model = choose(store.load(), label)
-    alias = model_alias(label)
+def cli_settings(store: Store) -> dict:
     env = {
         "ANTHROPIC_BASE_URL": store.url(),
         "ANTHROPIC_AUTH_TOKEN": store.secrets()["gateway_key"],
-        "ANTHROPIC_CUSTOM_MODEL_OPTION": alias,
-        "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": model.get("label", label),
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
-        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": str(model.get("context", 200000)),
         "ENABLE_TOOL_SEARCH": "false",
         "API_TIMEOUT_MS": "600000",
-        "CLAUDE_CODE_SUBAGENT_MODEL": alias,
-        "ANTHROPIC_SMALL_FAST_MODEL": alias,
     }
-    for family in ("OPUS", "SONNET", "HAIKU", "FABLE"):
-        env[f"ANTHROPIC_DEFAULT_{family}_MODEL"] = alias
-    return {"model": alias, "env": env}
+    rows = picker_models(store.load())
+    return {
+        "env": env,
+        "modelPicker": {"replaceBuiltInOptions": True, "options": rows},
+        "availableModels": [row["model"] for row in rows],
+        "enforceAvailableModels": True,
+    }
 
 
 def desktop_profile(store: Store) -> dict:
     config = store.load()
-    active, _ = choose(config)
-    ordered = [active] + [key for key in config["models"] if key != active]
-    models = []
-    for label in ordered:
-        model = config["models"][label]
-        if not config["providers"][model["provider"]].get("enabled", True):
-            continue
-        models.append({
-            "name": model_alias(label),
-            "labelOverride": model.get("label", label),
-        })
+    models = [{"name": row["model"], "labelOverride": row["label"]} for row in picker_models(config)]
     return {
         "inferenceProvider": "gateway", "inferenceCredentialKind": "static",
         "inferenceGatewayBaseUrl": store.url(),

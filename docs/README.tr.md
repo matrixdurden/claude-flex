@@ -1,55 +1,46 @@
 # Claude Flex
 
-**Kendi modellerin. Kendi hesapların. Claude Code.**
+**Hesabını Flex'te seç. Modelini Claude Code'da seç.**
 
 ```bash
 uv tool install git+https://github.com/matrixdurden/claude-flex.git
 claude-flex
 ```
 
-Claude Code ve Python 3.11+ gerekir. Desktop zorunlu değildir. `claude-flex`
-doğrudan minimalist terminal arayüzünü açar; günlük kullanımda alt komut yoktur.
-Gerekli yerel gateway ilk kullanımda otomatik hazırlanır.
+- **a → Claude / ChatGPT → giriş yöntemi → giriş yap.**
+- Hesabı seçip **Enter** ile etkinleştir.
+- Normal **`claude`** komutunu aç; modeli **`/model`** menüsünden seç.
 
-## Modeller
+Flex'te yalnızca hesap seçimi, değişimi ve limitler bulunur. Ayrı bir model
+listesi veya model seçme ekranı yoktur. GPT modelleri Claude Code'da kendi
+adlarıyla görünür; Sonnet gibi gösterilmez. Aynı sağlayıcıdaki hesaplar arasında
+geçiş yaparken Claude Code'da seçtiğin model korunur.
 
-Modeli seçip **Enter** ile bilgisayarındaki gerçek Claude Code'u başlatırsın.
-Claude Code'dan çıkınca Flex'e dönersin. Proje klasörü değişmez.
+Günlük kodlama için doğrudan `claude` yeterli. Hesap değiştirmek veya kalan
+kullanımı görmek istediğinde Flex'i aç. **s → Open Claude Code** de kullanılabilir.
+Claude Code 2.1.242+ ve Python 3.11+ gerekir; Desktop zorunlu değildir.
 
-Bağlı hesapların ve sağlayıcıların döndürdüğü tüm konuşma modelleri açılışta ve
-girişten sonra otomatik yüklenir. Sabit bir üçlü model listesi kullanılmaz;
-hesapların ortak modelleri tek satırda görünür. Liste beş dakikada bir veya
-**r** ile yenilenir; bağlantı hatasında mevcut modeller korunur.
+## Tuşlar
 
-**a** ile Claude veya ChatGPT hesabı bağla. OpenRouter, Ollama, LM Studio ve
-diğer sağlayıcılar **s → Connect another model or provider** altındadır.
-
-## Hesaplar
-
-Modeller ve hesaplar tek sayfada. Ok tuşlarıyla modelden hesap satırına inebilirsin.
-Claude Pro/Max ve ChatGPT Plus/Pro hesapları
-aynı şekilde eklenir: **a → sağlayıcı → giriş yöntemi → giriş yap**.
-Etiket veya model formu sorulmaz. Hesap adı otomatik verilir; giriş tamamlanınca
-ilgili modeller aynı sayfaya otomatik eklenir. Claude için tarayıcı veya
-giriş bağlantısı, ChatGPT için bunlara ek olarak cihaz kodu ve mevcut OpenCode
-girişi seçenekleri bulunur.
-
-- **Space:** hesabı havuza al / çıkar.
-- **Enter:** limit ayrıntıları, tek hesap seçimi, giriş yenileme, ağırlık/öncelik,
-  hesabı kaldırma.
-- **r:** limitleri ve model listesini yenile.
-- **s:** havuz stratejisi ve isteğe bağlı Desktop bağlantısı.
+- **↑↓:** hesap seç.
+- **Enter:** hesabı Claude Code'da kullan.
+- **a:** hesap ekle.
+- **Space:** hesabı havuza al/çıkar.
+- **r:** limitleri ve Claude Code'un model listesini yenile.
+- **s:** ayrıntılar, giriş yenileme, hesap havuzu, Desktop bağlantısı.
 - **Esc:** geri; **q:** çık.
 
-Aynı modele giden yinelenen bağlantılar tek satırda birleştirilir. Ek sağlayıcı
-ve özel model bağlantıları **s → Connect another model or provider** altındadır.
+Hesaplar otomatik adlandırılır. Şifreyi yalnızca sağlayıcının kendi giriş
+ekranında girersin. Claude ve ChatGPT havuzları ayrı tutulur.
 
-Yüzdeler kalan kullanımdır. ChatGPT için Codex kotası, Claude için abonelik
-kullanım pencereleri gösterilir. Bilinmeyen veri **—**, eski veri **\*** ile
-gösterilir. Hesap havuzları sağlayıcıya göre ayrıdır: Claude hesabını seçmek
-ChatGPT hesaplarını kapatmaz.
+Gösterilen yüzdeler kalan kullanımdır. ChatGPT hesaplarında Codex limitleri,
+Claude hesaplarında sağlayıcının kullanım pencereleri gösterilir. Bilinmeyen
+değer **—**, eski veri **\*** ile işaretlenir. 429 kullanım limiti hatasında
+kullanılabilir başka bir hesabı seçebilir veya yenilenme zamanını bekleyebilirsin.
 
-Terminal TUI ana deneyimdir. Tarayıcı yönetim paneli veya arka planda bir web
-sunucusu yoktur. Kimlik bilgileri repo dışında yerel kullanıcı dizininde kalır.
+Hesap seçimi, normal Claude Code'un kullanıcı ayarlarına gateway bağlantısını
+ve gerçek model adlarını içeren `/model` listesini yazar. Önceki ayarların
+yedeği Flex'in özel kullanıcı klasöründe tutulur; izinler ve ilgisiz tercihler
+korunur. Kimlik bilgileri repo dışında kalır.
 
-Detaylar ve geliştirme: [English README](../README.md).
+[English README](../README.md) · [Mimari](architecture.md)

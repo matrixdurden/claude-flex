@@ -100,7 +100,7 @@ class ClaudeTests(unittest.TestCase):
         self.assertEqual(config["models"]["plus"]["label"], "GPT-6.1 Sol")
         self.assertEqual(choose(config, "gpt")[0], "plus")
         aliases = compile_gateway(self.store)["oauth"]["model-alias"]["codex"]
-        self.assertEqual({item["alias"] for item in aliases}, {model_alias("plus"), model_alias("gpt")})
+        self.assertEqual({item["alias"] for item in aliases}, {model_alias("plus"), model_alias("gpt"), "claude-gpt-6.1-sol"})
         service.merge_duplicate_models(self.store)
         self.assertEqual(config, self.store.load())
 
