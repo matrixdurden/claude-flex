@@ -134,7 +134,7 @@ def cli_settings(store: Store) -> dict:
 def desktop_profile(store: Store) -> dict:
     config = store.load()
     models = [{"name": row["model"], "labelOverride": row["label"]} for row in picker_models(config)]
-    return {
+    profile = {
         "inferenceProvider": "gateway", "inferenceCredentialKind": "static",
         "inferenceGatewayBaseUrl": store.url(),
         "inferenceGatewayApiKey": store.secrets()["gateway_key"],
@@ -142,3 +142,6 @@ def desktop_profile(store: Store) -> dict:
         "inferenceModels": models, "inferenceModelPricingEnabled": False,
         "toolSearchEnabled": False, "isClaudeCodeForDesktopEnabled": True,
     }
+    if config.get("permission_mode") == "bypassPermissions":
+        profile["disableBypassPermissionsMode"] = False
+    return profile

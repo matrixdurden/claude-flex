@@ -51,7 +51,21 @@ def library_path() -> Path:
     return Path.home() / ".config/Claude-3p/configLibrary"
 
 
+def apply_permissions(store: Store, path: Path | None = None):
+    if store.load().get("permission_mode") is None:
+        return None
+    from . import integration
+
+    if path is None:
+        home = Path.home()
+        if os.environ.get("WSL_DISTRO_NAME"):
+            home = linux_path(powershell("[Environment]::GetFolderPath('UserProfile')"))
+        path = home / ".claude/settings.json"
+    return integration.apply_permissions(store, path)
+
+
 def apply(store: Store, library: Path | None = None, *, activate=False) -> Path:
+    apply_permissions(store)
     library = library or library_path()
     library.mkdir(parents=True, exist_ok=True)
     with file_lock(library / ".claude-flex.lock"):

@@ -47,4 +47,12 @@ korunur. Kimlik bilgileri repo dışında kalır.
 Desktop profili açılıştan önce otomatik hazırlanır. Uygulama eski profille zaten
 açıksa yalnızca **Restart Desktop.** mesajı görünür; tamamen kapatıp açman yeterli.
 
+## İzinler
+
+**s → Permissions** altında **Full access**, **Auto** ve **Ask** bulunur.
+Full access, `bypassPermissions` modudur; işlem onaylarını sormadan çalışır.
+Auto bazı işlemler için yine onay isteyebilir. Bu tercih kullanıcıya özeldir;
+yeni kurulumlara zorunlu tam erişim uygulanmaz. Değişiklikten sonra yeni oturum
+aç. Mevcut izin kuralları korunur ve model seçimi değişmez.
+
 [English README](../README.md) · [Mimari](architecture.md)

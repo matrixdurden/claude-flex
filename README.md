@@ -102,6 +102,21 @@ already-running Desktop app has an older profile, Flex shows only **Restart
 Desktop.** until the app has been fully reopened. The native model picker stays
 in charge in both terminal and Desktop.
 
+## Permissions
+
+Choose **s → Permissions**:
+
+- **Full access** — `bypassPermissions`; routine tool-approval prompts are bypassed.
+- **Auto** — Claude Code evaluates actions and may still ask for approval.
+- **Ask** — normal manual approvals.
+
+This is a per-user preference, not a forced default for new installations.
+Flex passes the selected mode when opening terminal sessions and updates native
+Claude Code/Desktop user defaults. Existing permission rules are retained.
+Start a new session after changing the mode; already-running sessions keep
+their current mode. An explicit native `--permission-mode` choice takes precedence
+over the stored Flex preference.
+
 ## Connection and storage
 
 Selecting an account updates the native `~/.claude/settings.json` (or

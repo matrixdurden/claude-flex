@@ -99,6 +99,20 @@ token counters. Codex uses `/backend-api/wham/usage`; Claude uses
 redirects. Missing percentages and reset timestamps remain unknown. Successful
 snapshots are cached and explicitly marked stale on later failure.
 
+## Permission preference
+
+The optional private `permission_mode` setting is one of `bypassPermissions`,
+`auto`, or `manual`. Without a preference, native permission defaults are kept.
+When selected, it is merged into `permissions.defaultMode` without deleting
+allow/ask/deny rules; full access also records acceptance of the native bypass
+mode dialog. The launcher passes the chosen permission mode explicitly unless
+the caller supplies a native mode of their own. No hooks are disabled.
+
+For WSL Desktop launches, only the permission preference is merged into the
+Windows user's native Claude settings. CLI routing credentials and model picker
+settings are not copied there. Permission-setting backups remain in private
+Flex state, with one backup per settings path.
+
 ## Desktop
 
 Optional official Desktop integration writes one local `configLibrary` entry

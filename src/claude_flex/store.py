@@ -19,6 +19,7 @@ class FlexError(Exception):
 
 KINDS = {"codex", "claude-oauth", "openai", "responses", "claude", "gemini"}
 STRATEGIES = {"round-robin", "weighted-round-robin", "fill-first"}
+PERMISSION_MODES = {"bypassPermissions", "auto", "manual"}
 NAME = re.compile(r"[a-z][a-z0-9-]{0,47}\Z")
 
 
@@ -115,6 +116,8 @@ def validate(config: dict) -> None:
             raise FlexError("Unknown routing strategy.")
         if type(config["routing"]["sticky"]) is not bool:
             raise FlexError("Routing sticky must be true or false.")
+        if config.get("permission_mode") not in PERMISSION_MODES | {None}:
+            raise FlexError("Unknown permission mode.")
         for key, provider in config["providers"].items():
             name(key)
             if provider["kind"] not in KINDS:

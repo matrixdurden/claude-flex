@@ -213,6 +213,22 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertIsInstance(app.focused, OptionList)
 
+    async def test_permissions_are_configurable_without_extra_main_screen_controls(self):
+        app = FlexApp(self.store, usage=FakeUsage())
+        def save_mode(store, mode):
+            store.mutate(lambda config: config.update(permission_mode=mode))
+        with patch("claude_flex.tui.service.set_permission_mode", side_effect=save_mode) as save:
+            async with app.run_test() as pilot:
+                await pilot.press("s", "down", "enter")
+                await pilot.pause()
+                self.assertIsInstance(app.screen, Choice)
+                self.assertEqual([key for key, _ in app.screen.choices], ["bypassPermissions", "auto", "manual"])
+                await pilot.press("enter")
+                await pilot.pause(0.3)
+                self.assertTrue(app.main_screen())
+        save.assert_called_once_with(self.store, "bypassPermissions")
+        self.assertEqual(self.store.load()["permission_mode"], "bypassPermissions")
+
     async def test_failed_account_activation_is_reported(self):
         app = FlexApp(self.store, usage=FakeUsage(), activate=Mock(side_effect=FlexError("Sign-in expired")))
         async with app.run_test() as pilot:

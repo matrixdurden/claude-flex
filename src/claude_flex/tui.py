@@ -498,9 +498,14 @@ class FlexApp(App):
     @work(exclusive=True, group="operations")
     async def settings_flow(self):
         try:
-            action = await self.push_screen_wait(Choice("Settings", [("details", "Account details"), ("provider", "API provider"), ("pool", "Account pool"), ("all", "Enable all"), ("stop", "Stop gateway")]))
+            action = await self.push_screen_wait(Choice("Settings", [("details", "Account details"), ("permissions", "Permissions"), ("provider", "API provider"), ("pool", "Account pool"), ("all", "Enable all"), ("stop", "Stop gateway")]))
             if action == "details" and self.current():
                 await self.account_details(self.current())
+            elif action == "permissions":
+                mode = await self.push_screen_wait(Choice("Permissions", [("bypassPermissions", "Full access"), ("auto", "Auto"), ("manual", "Ask")]))
+                if mode:
+                    await self.perform(service.set_permission_mode, self.store, mode)
+                    self.message("")
             elif action == "provider":
                 await self.connect_provider()
             elif action == "pool":

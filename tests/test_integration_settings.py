@@ -40,6 +40,7 @@ class NativeSettingsTests(unittest.TestCase):
         value = read_json(self.path)
         self.assertEqual(value["model"], "gpt-6-luna")
         self.assertEqual(value["theme"], "dark")
+        self.assertEqual(value["permissions"]["defaultMode"], "default")
         self.assertEqual(value["env"]["PROJECT_FLAG"], "yes")
         self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", value["env"])
         self.assertTrue((self.store.home / "backups/claude-settings-original.json").exists())
@@ -77,6 +78,62 @@ class NativeSettingsTests(unittest.TestCase):
                 service.activate_account(self.store, "gpt", settings_path=self.path)
         self.assertFalse(self.path.exists())
         self.assertIsNone(self.store.load().get("selected_account"))
+
+    def test_full_access_updates_default_mode_without_erasing_permission_rules(self):
+        accounts.select_accounts(self.store, "gpt")
+        original = {"model": "gpt-6-luna", "permissions": {"defaultMode": "manual", "allow": ["Read"], "deny": ["Bash(forbidden-command)"]}, "env": {"PROJECT_FLAG": "yes"}}
+        write_json(self.path, original)
+        self.store.mutate(lambda config: config.update(permission_mode="bypassPermissions"))
+        integration.apply(self.store, self.path)
+        value = read_json(self.path)
+        self.assertEqual(value["permissions"]["defaultMode"], "bypassPermissions")
+        self.assertEqual(value["permissions"]["allow"], ["Read"])
+        self.assertEqual(value["permissions"]["deny"], ["Bash(forbidden-command)"])
+        self.assertTrue(value["skipDangerousModePermissionPrompt"])
+        self.assertEqual(value["model"], "gpt-6-luna")
+        self.assertTrue(any((self.store.home / "backups").glob("permissions-*.json")))
+
+    def test_full_access_launcher_overrides_old_session_mode_without_pinning_model(self):
+        accounts.select_accounts(self.store, "gpt")
+        self.store.mutate(lambda config: config.update(permission_mode="bypassPermissions"))
+        integration.apply(self.store, self.path)
+        with patch("claude_flex.service.shutil.which", return_value="/fake/claude"), patch("claude_flex.service.ensure_backend"), patch("claude_flex.service.sync_models"), patch("claude_flex.service.Gateway"), patch("claude_flex.service.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "2.1.302 (Claude Code)"
+            service.run_claude(self.store, args=("--version",))
+        self.assertEqual(run.call_args.args[0], ["/fake/claude", "--permission-mode", "bypassPermissions", "--version"])
+        self.assertNotIn("--model", run.call_args.args[0])
+
+    def test_explicit_native_permission_choice_takes_precedence_over_flex_preference(self):
+        accounts.select_accounts(self.store, "gpt")
+        self.store.mutate(lambda config: config.update(permission_mode="bypassPermissions"))
+        integration.apply(self.store, self.path)
+        with patch("claude_flex.service.shutil.which", return_value="/fake/claude"), patch("claude_flex.service.ensure_backend"), patch("claude_flex.service.sync_models"), patch("claude_flex.service.Gateway"), patch("claude_flex.service.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "2.1.302 (Claude Code)"
+            service.run_claude(self.store, args=("--permission-mode", "plan", "--version"))
+        self.assertEqual(run.call_args.args[0], ["/fake/claude", "--permission-mode", "plan", "--version"])
+
+    def test_desktop_permission_update_does_not_copy_cli_routing_or_model_settings(self):
+        from claude_flex import desktop
+
+        self.store.mutate(lambda config: config.update(permission_mode="bypassPermissions"))
+        path = Path(self.temp.name) / "desktop-home/.claude/settings.json"
+        write_json(path, {"model": "sonnet", "theme": "light"})
+        desktop.apply_permissions(self.store, path)
+        value = read_json(path)
+        self.assertEqual(value["permissions"]["defaultMode"], "bypassPermissions")
+        self.assertTrue(value["skipDangerousModePermissionPrompt"])
+        self.assertEqual(value["model"], "sonnet")
+        self.assertNotIn("env", value)
+
+    def test_auto_and_ask_modes_can_replace_full_access(self):
+        for mode in ("bypassPermissions", "auto", "manual"):
+            self.store.mutate(lambda config, mode=mode: config.update(permission_mode=mode))
+            integration.apply_permissions(self.store, self.path)
+            self.assertEqual(read_json(self.path)["permissions"]["defaultMode"], mode)
+        with self.assertRaises(FlexError):
+            self.store.mutate(lambda config: config.update(permission_mode="invalid"))
 
 
 if __name__ == "__main__":

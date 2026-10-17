@@ -192,6 +192,15 @@ def activate_account(store: Store, label: str, *, settings_path: Path | None = N
     return {"settings_path": str(path), "catalog_errors": report["errors"]}
 
 
+def set_permission_mode(store: Store, mode: str):
+    from . import desktop
+
+    store.mutate(lambda config: config.update(permission_mode=mode))
+    integration.refresh_if_connected(store)
+    integration.apply_permissions(store)
+    desktop.apply_permissions(store)
+
+
 def run_claude(store: Store, account=None, args=()) -> int:
     merge_duplicate_models(store)
     binary = native_claude()
@@ -211,7 +220,10 @@ def run_claude(store: Store, account=None, args=()) -> int:
     env = os.environ.copy()
     for key in integration.LEGACY_ENV | {"ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"}:
         env.pop(key, None)
-    return subprocess.run([binary, *args], env=env, check=False).returncode
+    mode = store.load().get("permission_mode")
+    explicit_mode = any(arg == "--permission-mode" or arg.startswith("--permission-mode=") or arg == "--dangerously-skip-permissions" for arg in args)
+    permission_args = ["--permission-mode", mode] if mode and not explicit_mode else []
+    return subprocess.run([binary, *permission_args, *args], env=env, check=False).returncode
 
 
 def suggest_name(upstream: str) -> str:

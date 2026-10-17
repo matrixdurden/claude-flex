@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from hashlib import sha256
 from pathlib import Path
 
 from .compiler import cli_model_id, cli_settings
@@ -21,6 +22,39 @@ def settings_path() -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "settings.json"
 
 
+def permission_settings(previous: dict, mode: str | None) -> dict:
+    updated = dict(previous)
+    if mode is None:
+        return updated
+    permissions = dict(updated.get("permissions", {}))
+    permissions["defaultMode"] = mode
+    updated["permissions"] = permissions
+    if mode == "bypassPermissions":
+        updated["skipDangerousModePermissionPrompt"] = True
+    return updated
+
+
+def permission_backup(store: Store, path: Path, previous: dict):
+    key = sha256(str(path.resolve()).encode()).hexdigest()[:12]
+    backup = store.home / "backups" / f"permissions-{key}.json"
+    if not backup.exists():
+        write_json(backup, {"path": str(path), "settings": previous})
+
+
+def apply_permissions(store: Store, path: Path | None = None) -> Path | None:
+    mode = store.load().get("permission_mode")
+    if mode is None:
+        return None
+    path = path or settings_path()
+    with file_lock(store.home / "claude-settings.lock"):
+        previous = read_json(path, {})
+        permission_backup(store, path, previous)
+        updated = permission_settings(previous, mode)
+        if updated != previous:
+            write_json(path, updated)
+    return path
+
+
 def apply(store: Store, path: Path | None = None) -> Path:
     path = path or settings_path()
     settings = cli_settings(store)
@@ -32,7 +66,10 @@ def apply(store: Store, path: Path | None = None) -> Path:
         backup = store.home / "backups/claude-settings-original.json"
         if not backup.exists():
             write_json(backup, {"path": str(path), "settings": previous})
-        updated = {**previous}
+        mode = store.load().get("permission_mode")
+        if mode:
+            permission_backup(store, path, previous)
+        updated = permission_settings(previous, mode)
         env = dict(updated.get("env", {}))
         for key in LEGACY_ENV:
             env.pop(key, None)
