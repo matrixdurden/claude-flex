@@ -7,8 +7,9 @@ from textual.widgets import Input, OptionList, Tabs
 
 from claude_flex import accounts, service
 from claude_flex.store import Store
-from claude_flex.tui import Choice, FlexApp, Form, LoginDialog, percent
-from tests.helpers import token
+from claude_flex.tui import Choice, Form, LoginDialog, percent
+from claude_flex.tui import FlexApp as BaseFlexApp
+from tests.helpers import mock_catalog, token
 from tests.test_claude import claude_credential
 
 
@@ -18,6 +19,12 @@ class FakeUsage:
 
     def all(self):
         return self.cached()
+
+
+class FlexApp(BaseFlexApp):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("catalog_sync", lambda *args, **kwargs: {"added": [], "errors": {}})
+        super().__init__(*args, **kwargs)
 
 
 class FakeLogin:
@@ -54,6 +61,10 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
         self.store.init()
         accounts.import_account(self.store, "main", accounts.normalize({"access": token()}))
         service.add_model(self.store, "plus", "codex", "synthetic-model", "GPT / Plus")
+        for target in ("claude_flex.service.discover", "claude_flex.tui.discover"):
+            catalog = patch(target, side_effect=lambda store, provider, **options: mock_catalog(provider))
+            catalog.start()
+            self.addCleanup(catalog.stop)
 
     async def test_models_and_accounts_share_one_page_with_keyboard_navigation(self):
         app = FlexApp(self.store, usage=FakeUsage())
@@ -203,6 +214,15 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(len([kind for kind, _ in app.entries.values() if kind == "models"]), 1)
             self.assertEqual(len(self.store.load()["models"]), 1)
+            self.assertEqual(self.store.load()["active"], "plus")
+
+    async def test_live_catalog_is_loaded_automatically_on_startup(self):
+        app = BaseFlexApp(self.store, usage=FakeUsage())
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            models = self.store.load()["models"]
+            self.assertEqual(len(models), 4)
+            self.assertIn("GPT-6.1 Sol", app.export_screenshot().replace("&#160;", " "))
             self.assertEqual(self.store.load()["active"], "plus")
 
     async def test_enter_hands_selected_profile_to_real_launcher(self):

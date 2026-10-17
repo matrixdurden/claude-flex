@@ -29,7 +29,7 @@ async def main():
         for label, provider, plan in (("personal", "claude", "Max"), ("work", "codex", "Plus")):
             store.mutate(lambda config, label=label, provider=provider: config["accounts"].update({label: {"provider": provider, "enabled": True, "weight": 1, "priority": 0, "identity": label, "source": None}}))
             write_json(store.account_path(label), {"type": provider, "email": "demo@example.invalid", "plan_type": plan})
-        app = FlexApp(store, usage=DemoUsage())
+        app = FlexApp(store, usage=DemoUsage(), catalog_sync=lambda *args, **kwargs: {"added": [], "errors": {}})
         target = Path(__file__).resolve().parents[1] / "docs/assets"
         target.mkdir(parents=True, exist_ok=True)
         async with app.run_test(size=(96, 24)) as pilot:

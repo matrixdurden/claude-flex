@@ -7,7 +7,7 @@ from claude_flex import accounts, service
 from claude_flex.compiler import choose, compile_gateway, model_alias
 from claude_flex.store import FlexError, Store, read_json
 from claude_flex.usage import fetch_usage, normalize_claude_usage
-from tests.helpers import token
+from tests.helpers import mock_catalog, token
 
 
 def claude_credential(identity="claude-account"):
@@ -20,6 +20,9 @@ class ClaudeTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.store = Store(Path(self.temp.name))
         self.store.init()
+        catalog = patch("claude_flex.service.discover", side_effect=lambda store, provider, **options: mock_catalog(provider))
+        catalog.start()
+        self.addCleanup(catalog.stop)
 
     def test_claude_normalization_preserves_identity_and_refresh_ownership(self):
         snapshot = accounts.normalize(claude_credential())
@@ -70,13 +73,14 @@ class ClaudeTests(unittest.TestCase):
         fetch.assert_called_once()
 
     def test_automatic_models_skip_existing_upstream_and_preserve_custom_names(self):
+        accounts.import_account(self.store, "claude", accounts.normalize(claude_credential()))
         service.add_model(self.store, "my-sonnet", "claude-oauth", "claude-sonnet-5-5", "My Sonnet")
         service.add_model(self.store, "opus", "codex", "some-custom-model", "Custom")
         service.default_account_models(self.store, "claude")
         service.default_account_models(self.store, "claude")
         models = self.store.load()["models"]
         self.assertEqual(models["opus"]["id"], "some-custom-model")
-        self.assertIn("opus-2", models)
+        self.assertTrue(any(model["provider"] == "claude-oauth" and model["id"] == "claude-opus-5-5" for model in models.values()))
         self.assertEqual(len([model for model in models.values() if model["provider"] == "claude-oauth"]), 3)
         self.assertEqual(self.store.load()["active"], "my-sonnet")
 

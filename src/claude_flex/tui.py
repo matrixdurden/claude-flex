@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 
 from rich.text import Text
 from textual import on, work
@@ -203,7 +204,7 @@ class LoginDialog(Dialog):
 class FlexApp(App):
     TITLE = "Claude Flex"
     ENABLE_COMMAND_PALETTE = False
-    CSS_PATH = "tui.tcss"
+    CSS_PATH = Path(__file__).with_name("tui.tcss")
     BINDINGS = [
         Binding("a", "add", "Add", show=False),
         Binding("space", "toggle", "Toggle", show=False),
@@ -213,12 +214,14 @@ class FlexApp(App):
         Binding("q", "quit", "Quit", show=False),
     ]
 
-    def __init__(self, store: Store, *, usage=None, logins=None, launch=None):
+    def __init__(self, store: Store, *, usage=None, logins=None, launch=None, catalog_sync=None):
         super().__init__()
         self.store = store
         self.usage = usage or UsageService(store)
         self.logins = logins or LoginManager(store)
         self.launch = launch or service.run_claude
+        self.catalog_sync = catalog_sync or service.sync_models
+        self.catalog_refreshing = False
         self.entries = {}
         self.selected_key = None
         self.working = False
@@ -239,7 +242,9 @@ class FlexApp(App):
         self.draw()
         self.listing.focus()
         self.refresh_usage()
+        self.refresh_models()
         self.set_interval(60, self.refresh_usage)
+        self.set_interval(300, self.refresh_models)
 
     def main_screen(self):
         return len(self.screen_stack) == 1
@@ -340,6 +345,24 @@ class FlexApp(App):
     def action_refresh(self):
         if self.main_screen():
             self.refresh_usage()
+            self.refresh_models(force=True)
+
+    @work(group="catalog")
+    async def refresh_models(self, *, force=False):
+        if self.catalog_refreshing:
+            return
+        self.catalog_refreshing = True
+        try:
+            report = await asyncio.to_thread(self.catalog_sync, self.store, force=force)
+            if self.main_screen():
+                self.draw()
+                if force and report.get("errors"):
+                    self.message("Some model lists are unavailable. Existing models were kept.", True)
+        except (FlexError, OSError):
+            if self.main_screen() and force:
+                self.message("Model list unavailable. Press r to retry.", True)
+        finally:
+            self.catalog_refreshing = False
 
     async def perform(self, function, *args, **kwargs):
         self.working = True
@@ -413,11 +436,13 @@ class FlexApp(App):
         job = self.logins.start(label, method="device" if method == "device" else "browser", provider=provider, replace=bool(renew), weight=meta["weight"] if renew else 1, priority=meta["priority"] if renew else 0)
         result = await self.push_screen_wait(LoginDialog(self.logins, job, open_automatically=method != "link"))
         if result and result["status"] == "complete":
-            service.default_account_models(self.store, provider)
+            report = await self.perform(service.default_account_models, self.store, provider)
             if renew:
                 self.message("Sign-in renewed.")
             else:
                 self.account_connected(provider)
+            if report.get("errors"):
+                self.message("Account connected. Model list unavailable; press r to retry.", True)
         elif result and result.get("error"):
             self.message(result["error"], True)
 
@@ -438,18 +463,23 @@ class FlexApp(App):
             provider = await self.connect_provider()
             if not provider:
                 return
-        kind = self.store.load()["providers"][provider]["kind"]
-        if kind in {"codex", "claude-oauth"}:
-            choices = [("claude-opus-5-5", "Claude Opus"), ("claude-sonnet-5-5", "Claude Sonnet")] if kind == "claude-oauth" else [("gpt-6.1-sol", "GPT-6.1 Sol"), ("gpt-6-astra", "GPT-6 Astra"), ("gpt-6-luna", "GPT-6 Luna")]
-        else:
-            self.message("Finding available models…")
-            try:
-                catalog = await self.perform(discover, self.store, provider, free="openrouter.ai" in self.store.load()["providers"][provider].get("base_url", ""), tools="openrouter.ai" in self.store.load()["providers"][provider].get("base_url", ""))
-                choices = [(item["id"], plain(item["label"])) for item in catalog[:150]]
-            except FlexError:
-                choices = []
+            target = next((label for label, model in self.store.load()["models"].items() if model["provider"] == provider), None)
+            if target:
+                self.selected_key = f"model:{target}"
+                self.message("Provider connected. Models loaded automatically.")
+                return
+        self.message("Finding available models…")
+        try:
+            catalog = await self.perform(discover, self.store, provider)
+            choices = [(item["id"], plain(item["label"])) for item in catalog]
+        except FlexError:
+            choices = [(model["id"], model["label"]) for model in self.store.load()["models"].values() if model["provider"] == provider]
         upstream = await self.push_screen_wait(Choice("Choose a model", choices + [("__custom", "Enter a model ID…")]))
         if not upstream:
+            return
+        existing = next((label for label, model in self.store.load()["models"].items() if model["provider"] == provider and model["id"] == upstream), None)
+        if existing:
+            self.selected_key = f"model:{existing}"
             return
         if upstream == "__custom":
             values = await self.push_screen_wait(Form("Custom model", [("model", "Upstream model ID", "", False)]))
@@ -486,6 +516,7 @@ class FlexApp(App):
         add_provider(self.store, values["name"], preset=None if preset == "__custom" else preset, kind=kind, url=values.get("url"), no_auth=local)
         if not local:
             add_key(self.store, values["name"], "default", value=values["key"])
+        await self.perform(service.sync_models, self.store, providers=[values["name"]], force=True)
         return values["name"]
 
     def action_toggle(self):

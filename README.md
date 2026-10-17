@@ -52,7 +52,13 @@ Code to return to Flex. Separate sessions keep their selected model.
 - Ollama and LM Studio for models running on your own hardware.
 - OpenAI, Anthropic, Gemini, Groq, GitHub Models, or a compatible custom API.
 
-Press **a** to connect an account; its model presets appear automatically.
+All conversational models returned by your connected providers are loaded
+automatically at startup and after sign-in. Flex combines account catalogs
+without duplicate rows; no hard-coded three-model menu is used. Catalogs
+refresh every five minutes, or immediately with **r**. If discovery fails,
+existing profiles remain available.
+
+Press **a** to connect an account; its live model list appears automatically.
 For other sources, use **s → Connect another model or provider**. API keys are entered in a
 masked field. Model IDs and context sizes can also be entered manually.
 Models must support reliable tool calls to be useful coding agents; protocol
@@ -65,11 +71,11 @@ Claude and ChatGPT accounts use the same controls:
 - **a** — choose Claude / ChatGPT, choose a sign-in method, then sign in.
 - **Space** — enable or pause the selected account.
 - **Enter** — details, renewal, account selection, weight, priority, or removal.
-- **r** — refresh quota snapshots.
+- **r** — refresh limits and model lists.
 
 No account-name, weight, or model form is shown during sign-in. Accounts are
 named automatically (`claude`, `claude-2`, `chatgpt`, …), and the provider's
-model presets appear in Models immediately after a successful connection.
+live model list appears immediately after a successful connection.
 Available sign-in methods include browser, a copyable link, and ChatGPT device
 codes; existing OpenCode ChatGPT sign-in is under ChatGPT's sign-in methods.
 
@@ -100,9 +106,9 @@ times. Additional provider/model windows appear in account details.
 | --- | --- |
 | `↑` / `↓` | Select a row |
 | `Enter` | Launch model / open account details |
-| `a` | Connect an account; model presets are added automatically |
+| `a` | Connect an account; models are loaded automatically |
 | `Space` | Toggle account in pool |
-| `r` | Refresh limits |
+| `r` | Refresh limits and model catalogs |
 | `d` | Make selected model the default |
 | `s` | Settings, pool and optional Desktop integration |
 | `Esc` | Back / cancel sign-in |

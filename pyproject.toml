@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-flex"
-version = "0.3.2"
+version = "0.3.3"
 description = "A minimal terminal interface for Claude Code models and account pools"
 readme = "README.md"
 requires-python = ">=3.11"

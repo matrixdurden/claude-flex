@@ -18,3 +18,16 @@ def free_port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+def mock_catalog(provider, **_):
+    entries = (
+        ("claude-opus-5-5", "Claude Opus"),
+        ("claude-sonnet-5-5", "Claude Sonnet"),
+        ("claude-haiku-5-5", "Claude Haiku"),
+    ) if provider == "claude-oauth" else (
+        ("gpt-6.1-sol", "GPT-6.1 Sol"),
+        ("gpt-6-astra", "GPT-6 Astra"),
+        ("gpt-6-luna", "GPT-6 Luna"),
+    )
+    return [{"id": identity, "label": label, "context": 200000} for identity, label in entries]

@@ -11,6 +11,11 @@ from urllib.parse import urlsplit
 from . import __version__
 from .store import FlexError, Store, base_url, name
 
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
 PRESETS = {
     "openrouter": ("openai", "https://openrouter.ai/api/v1", False),
     "ollama": ("openai", "http://127.0.0.1:11434/v1", True),
@@ -25,8 +30,8 @@ PRESETS = {
 
 def opener(url: str):
     if urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"}:
-        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    return urllib.request.build_opener()
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    return urllib.request.build_opener(NoRedirect())
 
 
 def request_json(url: str, *, headers: dict | None = None, body: dict | None = None, timeout=20):
@@ -120,7 +125,7 @@ def discover(store: Store, label: str, *, free=False, tools=False) -> list[dict]
         kind, url, no_auth = PRESETS[label]
         provider = {"kind": kind, "base_url": url, "no_auth": no_auth, "keys": []}
     if provider["kind"] in {"codex", "claude-oauth"}:
-        raise FlexError("Use 'gateway models' to discover authenticated Codex models.")
+        return discover_oauth(store, provider["kind"])
     url = provider["base_url"]
     headers = {}
     # OpenRouter's catalog is public. Its inference endpoint still requires a key.
@@ -137,6 +142,13 @@ def discover(store: Store, label: str, *, free=False, tools=False) -> list[dict]
     result = []
     for item in payload.get("data", payload.get("models", [])):
         identity = item.get("id", item.get("name", ""))
+        if provider["kind"] == "gemini":
+            identity = identity.removeprefix("models/")
+            methods = item.get("supportedGenerationMethods")
+            if isinstance(methods, list) and "generateContent" not in methods:
+                continue
+        if not conversational_model(identity, item):
+            continue
         pricing = item.get("pricing", {})
         try:
             is_free = bool(pricing) and float(pricing.get("prompt", -1)) == 0 and float(pricing.get("completion", -1)) == 0
@@ -150,3 +162,85 @@ def discover(store: Store, label: str, *, free=False, tools=False) -> list[dict]
             continue
         result.append({"id": identity, "label": item.get("name", identity), "free": is_free, "tools": has_tools, "context": item.get("context_length")})
     return result
+
+
+def conversational_model(identity, metadata):
+    if not isinstance(identity, str) or not identity:
+        return False
+    if metadata.get("visibility") == "hide" or identity.startswith(("gpt-image", "gpt-audio", "gpt-realtime", "tts-", "whisper-", "text-embedding", "omni-moderation")):
+        return False
+    modalities = metadata.get("output_modalities")
+    return not (isinstance(modalities, list) and modalities and "text" not in modalities)
+
+
+def normalize_catalog(payload: dict) -> list[dict]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("models", payload.get("data")), list):
+        raise FlexError("The model service did not return a model list.")
+    result = []
+    seen = set()
+    for item in payload.get("models", payload.get("data", [])):
+        if not isinstance(item, dict):
+            continue
+        identity = item.get("slug") or item.get("id")
+        if not isinstance(identity, str) or not identity or identity in seen:
+            continue
+        # Claude Code needs a conversational model, not an image/audio generator.
+        if not conversational_model(identity, item):
+            continue
+        context = item.get("context_window") or item.get("context_length") or item.get("max_input_tokens")
+        if type(context) is not int or context < 4096:
+            context = 200000
+        label = item.get("display_name") or item.get("name") or identity
+        result.append({"id": identity, "label": label if isinstance(label, str) else identity, "context": context})
+        seen.add(identity)
+    return result
+
+
+def oauth_catalog(credential: dict) -> list[dict]:
+    if not credential.get("access_token") or credential.get("type") != "claude" and not credential.get("account_id"):
+        raise FlexError("Account sign-in is missing. Renew it to load models.")
+    headers = {"Authorization": "Bearer " + credential["access_token"], "Accept": "application/json"}
+    if credential.get("type") == "claude":
+        headers.update({"anthropic-beta": "oauth-2025-04-20", "anthropic-version": "2023-06-01"})
+        url = "https://api.anthropic.com/v1/models?limit=100"
+        payload = request_json(url, headers=headers)
+        results = normalize_catalog(payload)
+        # Anthropic uses after_id pagination. Never follow a server-supplied URL.
+        cursors = set()
+        while payload.get("has_more") and payload.get("last_id") not in cursors:
+            from urllib.parse import quote
+
+            cursor = payload.get("last_id")
+            if not isinstance(cursor, str) or not cursor:
+                break
+            cursors.add(cursor)
+            payload = request_json(url + "&after_id=" + quote(cursor, safe=""), headers=headers)
+            results.extend(normalize_catalog(payload))
+        return results
+    headers.update({"ChatGPT-Account-Id": credential["account_id"], "Originator": "codex_cli_rs", "User-Agent": "codex_cli_rs/0.159.0"})
+    payload = request_json("https://chatgpt.com/backend-api/codex/models?client_version=0.159.0", headers=headers)
+    return normalize_catalog(payload)
+
+
+def discover_oauth(store: Store, kind: str) -> list[dict]:
+    from .accounts import provider_of, sync_sources
+    from .store import read_json
+
+    sync_sources(store)
+    channel = "claude" if kind == "claude-oauth" else "codex"
+    labels = [label for label, meta in store.load()["accounts"].items() if meta["enabled"] and provider_of(meta) == channel]
+    if not labels:
+        return []
+    results = {}
+    succeeded = False
+    for label in labels:
+        try:
+            entries = oauth_catalog(read_json(store.account_path(label)))
+            succeeded = True
+            for item in entries:
+                results.setdefault(item["id"], item)
+        except (FlexError, OSError):
+            continue
+    if not succeeded:
+        raise FlexError(f"Could not load {channel} models. Renew an account sign-in and retry.")
+    return list(results.values())

@@ -7,13 +7,15 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import webbrowser
 from pathlib import Path
 
 from . import accounts
 from .compiler import choose, cli_settings
 from .gateway import Gateway, find_binary, install
-from .store import FlexError, Store, write_json
+from .providers import discover
+from .store import FlexError, Store, read_json, write_json
 
 
 def ensure_backend(store: Store):
@@ -86,29 +88,73 @@ def remove_model(store: Store, label: str):
 
 
 def default_account_models(store: Store, provider: str):
-    presets = (
-        ("opus", "claude-opus-5-5", "Claude Opus"),
-        ("sonnet", "claude-sonnet-5-5", "Claude Sonnet"),
-        ("haiku", "claude-haiku-5-5", "Claude Haiku"),
-    ) if provider == "claude" else (
-        ("gpt", "gpt-6.1-sol", "GPT-6.1 Sol"),
-        ("astra", "gpt-6-astra", "GPT-6 Astra"),
-        ("luna", "gpt-6-luna", "GPT-6 Luna"),
-    )
     target = "claude-oauth" if provider == "claude" else "codex"
+    return sync_models(store, providers=[target], force=True)
+
+
+def merge_catalog(store: Store, provider: str, entries: list[dict]) -> list[str]:
+    added = []
 
     def change(config):
-        for base, upstream, display in presets:
-            if any(model["provider"] == target and model["id"] == upstream for model in config["models"].values()):
+        for item in entries:
+            upstream = item.get("id")
+            if not isinstance(upstream, str) or not upstream:
                 continue
+            if any(model["provider"] == provider and model["id"] == upstream for model in config["models"].values()):
+                continue
+            base = suggest_name(upstream)
             label, number = base, 2
-            while label in config["models"]:
+            while label in config["models"] or label in config.get("model_redirects", {}):
                 label, number = f"{base}-{number}", number + 1
-            config["models"][label] = {"provider": target, "id": upstream, "label": display, "context": 200000}
+            context = item.get("context")
+            if type(context) is not int or context < 4096:
+                context = 200000
+            config["models"][label] = {"provider": provider, "id": upstream, "label": item.get("label") or upstream, "context": context, "discovered": True}
             if not config["active"]:
                 config["active"] = label
+            added.append(label)
 
     store.mutate(change)
+    return added
+
+
+def sync_models(store: Store, *, providers=None, force=False) -> dict:
+    """Union live catalogs from connected sources; keep existing routes on failure."""
+    import hashlib
+    import json
+
+    config = store.load()
+    cache_path = store.runtime / "model-catalog.json"
+    cache = read_json(cache_path, {})
+    report = {"added": [], "errors": {}}
+    for label, provider in config["providers"].items():
+        if providers is not None and label not in providers or not provider.get("enabled", True):
+            continue
+        if provider["kind"] in {"codex", "claude-oauth"}:
+            channel = "claude" if provider["kind"] == "claude-oauth" else "codex"
+            identities = sorted(meta["identity"] for meta in config["accounts"].values() if meta["enabled"] and accounts.provider_of(meta) == channel)
+            if not identities:
+                continue
+        else:
+            identities = []
+            if not provider.get("keys") and not provider.get("no_auth"):
+                continue
+        signature = hashlib.sha256(json.dumps([provider, identities], sort_keys=True).encode()).hexdigest()
+        previous = cache.get(label, {})
+        if not force and previous.get("signature") == signature and time.time() - previous.get("at", 0) < 300:
+            continue
+        try:
+            entries = discover(store, label)
+            report["added"].extend(merge_catalog(store, label, entries))
+            cache[label] = {"signature": signature, "at": time.time()}
+        except (FlexError, OSError) as exc:
+            report["errors"][label] = str(exc) if isinstance(exc, FlexError) else "Model catalog unavailable."
+    write_json(cache_path, cache)
+    if report["added"] and Gateway(store).owned_pid():
+        from .compiler import render
+
+        render(store)
+    return report
 
 
 def next_account_name(store: Store, provider: str) -> str:
@@ -159,7 +205,11 @@ def open_browser(url: str):
         webbrowser.open(url)
 
 
-def import_opencode(store: Store, label: str):
-    source = Path.home() / ".local/share/opencode/auth.json"
-    accounts.import_account(store, label, accounts.opencode_data(source), source={"kind": "opencode", "path": str(source)})
-    default_account_models(store, "codex")
+def import_opencode(store: Store, label: str, source: Path | None = None):
+    source = (source or Path.home() / ".local/share/opencode/auth.json").expanduser().resolve()
+    data = accounts.opencode_data(source)
+    existing = next((key for key, meta in store.load()["accounts"].items() if meta["identity"] == accounts.identity(data)), None)
+    if existing and existing != label:
+        accounts.rename_account(store, existing, label)
+    accounts.import_account(store, label, data, source={"kind": "opencode", "path": str(source)}, replace=bool(existing))
+    return default_account_models(store, "codex")

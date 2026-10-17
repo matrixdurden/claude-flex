@@ -16,9 +16,13 @@ Gerekli yerel gateway ilk kullanımda otomatik hazırlanır.
 Modeli seçip **Enter** ile bilgisayarındaki gerçek Claude Code'u başlatırsın.
 Claude Code'dan çıkınca Flex'e dönersin. Proje klasörü değişmez.
 
-**a** ile model veya sağlayıcı ekle: Claude aboneliği, ChatGPT/Codex, OpenRouter
-ücretsiz modelleri, Ollama, LM Studio ve uyumlu API'ler. API anahtarları maskeli
-alanlardan alınır. Modelin güvenilir araç çağrısı desteği olmalıdır.
+Bağlı hesapların ve sağlayıcıların döndürdüğü tüm konuşma modelleri açılışta ve
+girişten sonra otomatik yüklenir. Sabit bir üçlü model listesi kullanılmaz;
+hesapların ortak modelleri tek satırda görünür. Liste beş dakikada bir veya
+**r** ile yenilenir; bağlantı hatasında mevcut modeller korunur.
+
+**a** ile Claude veya ChatGPT hesabı bağla. OpenRouter, Ollama, LM Studio ve
+diğer sağlayıcılar **s → Connect another model or provider** altındadır.
 
 ## Hesaplar
 
@@ -33,7 +37,7 @@ girişi seçenekleri bulunur.
 - **Space:** hesabı havuza al / çıkar.
 - **Enter:** limit ayrıntıları, tek hesap seçimi, giriş yenileme, ağırlık/öncelik,
   hesabı kaldırma.
-- **r:** limitleri yenile.
+- **r:** limitleri ve model listesini yenile.
 - **s:** havuz stratejisi ve isteğe bağlı Desktop bağlantısı.
 - **Esc:** geri; **q:** çık.
 

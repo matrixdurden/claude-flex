@@ -251,3 +251,28 @@ def remove_account(store: Store, label: str):
     with Gateway(store).paused():
         store.account_path(label).unlink(missing_ok=True)
         store.mutate(lambda config: config["accounts"].pop(label))
+
+
+def rename_account(store: Store, old: str, new: str):
+    name(new)
+    if old == new:
+        return
+    config = store.load()
+    if old not in config["accounts"] or new == "all" or new in config["accounts"] or store.account_path(new).exists():
+        raise FlexError("Account name is unavailable.")
+    from .gateway import Gateway
+
+    with Gateway(store).paused():
+        credential = read_json(store.account_path(old))
+        credential["label"] = new
+        write_json(store.account_path(new), credential)
+        try:
+            def change(current):
+                if new in current["accounts"]:
+                    raise FlexError("Account name is unavailable.")
+                current["accounts"][new] = current["accounts"].pop(old)
+            store.mutate(change)
+        except Exception:
+            store.account_path(new).unlink(missing_ok=True)
+            raise
+        store.account_path(old).unlink()

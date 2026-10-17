@@ -18,6 +18,22 @@ executable. The subprocess inherits the project working directory, normal
 permissions and project setup. Each launch receives a separate temporary settings
 file; global Claude Code settings are not rewritten.
 
+## Catalog discovery
+
+The TUI asynchronously loads model catalogs at startup, after connecting an
+account/provider and on refresh. Codex uses its authenticated `/codex/models`
+endpoint; Claude uses its paginated `/v1/models` endpoint. Other provider
+adapters query their model-list API. Catalog requests are read-only and don't
+generate inference traffic. Multiple OAuth accounts contribute a union of
+model IDs, without duplicate connection profiles.
+
+Catalog refreshes are cached for five minutes, keyed by provider configuration
+and enabled account identities. Newly enabled/connected accounts invalidate
+that signature. Discovery adds profiles while preserving existing names,
+explicit context settings, the default selection, and legacy aliases.
+Failed queries do not erase existing routes. Image/audio-only and hidden
+entries are excluded from the coding-model selector.
+
 ## User state
 
 ```text
