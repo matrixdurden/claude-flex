@@ -59,10 +59,16 @@ compatibility alone doesn't guarantee agent quality.
 
 Claude and ChatGPT accounts use the same controls:
 
-- **a** — add an account through its provider's browser sign-in.
+- **a** — choose Claude / ChatGPT, choose a sign-in method, then sign in.
 - **Space** — enable or pause the selected account.
 - **Enter** — details, renewal, account selection, weight, priority, or removal.
 - **r** — refresh quota snapshots.
+
+No account-name, weight, or model form is shown during sign-in. Accounts are
+named automatically (`claude`, `claude-2`, `chatgpt`, …), and the provider's
+model presets appear in Models immediately after a successful connection.
+Available sign-in methods include browser, a copyable link, and ChatGPT device
+codes; existing OpenCode ChatGPT sign-in is under ChatGPT's sign-in methods.
 
 The provider's own sign-in page handles your password. Independent logins keep
 separate refresh tokens; the gateway owns their renewal. Duplicate account

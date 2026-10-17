@@ -23,7 +23,11 @@ alanlardan alınır. Modelin güvenilir araç çağrısı desteği olmalıdır.
 ## Hesaplar
 
 **Tab** ile Hesaplar sekmesine geç. Claude Pro/Max ve ChatGPT Plus/Pro hesapları
-aynı şekilde eklenir: **a → sağlayıcı → etiket → tarayıcı girişi**.
+aynı şekilde eklenir: **a → sağlayıcı → giriş yöntemi → giriş yap**.
+Etiket veya model formu sorulmaz. Hesap adı otomatik verilir; giriş tamamlanınca
+ilgili modeller Modeller sekmesine otomatik eklenir. Claude için tarayıcı veya
+giriş bağlantısı, ChatGPT için bunlara ek olarak cihaz kodu ve mevcut OpenCode
+girişi seçenekleri bulunur.
 
 - **Space:** hesabı havuza al / çıkar.
 - **Enter:** limit ayrıntıları, tek hesap seçimi, giriş yenileme, ağırlık/öncelik,

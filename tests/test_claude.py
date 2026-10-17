@@ -69,6 +69,23 @@ class ClaudeTests(unittest.TestCase):
             fetch_usage(claude_credential())
         fetch.assert_called_once()
 
+    def test_automatic_models_skip_existing_upstream_and_preserve_custom_names(self):
+        service.add_model(self.store, "my-sonnet", "claude-oauth", "claude-sonnet-5-5", "My Sonnet")
+        service.add_model(self.store, "opus", "codex", "some-custom-model", "Custom")
+        service.default_account_models(self.store, "claude")
+        service.default_account_models(self.store, "claude")
+        models = self.store.load()["models"]
+        self.assertEqual(models["opus"]["id"], "some-custom-model")
+        self.assertIn("opus-2", models)
+        self.assertEqual(len([model for model in models.values() if model["provider"] == "claude-oauth"]), 3)
+        self.assertEqual(self.store.load()["active"], "my-sonnet")
+
+    def test_automatic_account_names_need_no_user_input_and_do_not_collide(self):
+        self.assertEqual(service.next_account_name(self.store, "claude"), "claude")
+        accounts.import_account(self.store, "claude", accounts.normalize(claude_credential()))
+        self.assertEqual(service.next_account_name(self.store, "claude"), "claude-2")
+        self.assertEqual(service.next_account_name(self.store, "codex"), "chatgpt")
+
 
 if __name__ == "__main__":
     unittest.main()

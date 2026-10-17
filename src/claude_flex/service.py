@@ -41,11 +41,38 @@ def add_model(store, label, provider, upstream, display=None, context=200000):
 
 
 def default_account_models(store: Store, provider: str):
-    presets = (("opus", "claude-opus-5-5", "Claude Opus"), ("sonnet", "claude-sonnet-5-5", "Claude Sonnet")) if provider == "claude" else (("gpt", "gpt-6.1-sol", "GPT-6.1 Sol"),)
+    presets = (
+        ("opus", "claude-opus-5-5", "Claude Opus"),
+        ("sonnet", "claude-sonnet-5-5", "Claude Sonnet"),
+        ("haiku", "claude-haiku-5-5", "Claude Haiku"),
+    ) if provider == "claude" else (
+        ("gpt", "gpt-6.1-sol", "GPT-6.1 Sol"),
+        ("astra", "gpt-6-astra", "GPT-6 Astra"),
+        ("luna", "gpt-6-luna", "GPT-6 Luna"),
+    )
     target = "claude-oauth" if provider == "claude" else "codex"
-    for label, upstream, display in presets:
-        if label not in store.load()["models"]:
-            add_model(store, label, target, upstream, display)
+
+    def change(config):
+        for base, upstream, display in presets:
+            if any(model["provider"] == target and model["id"] == upstream for model in config["models"].values()):
+                continue
+            label, number = base, 2
+            while label in config["models"]:
+                label, number = f"{base}-{number}", number + 1
+            config["models"][label] = {"provider": target, "id": upstream, "label": display, "context": 200000}
+            if not config["active"]:
+                config["active"] = label
+
+    store.mutate(change)
+
+
+def next_account_name(store: Store, provider: str) -> str:
+    base = "claude" if provider == "claude" else "chatgpt"
+    existing = set(store.load()["accounts"])
+    label, number = base, 2
+    while label in existing or store.account_path(label).exists():
+        label, number = f"{base}-{number}", number + 1
+    return label
 
 
 def run_claude(store: Store, profile=None, args=()) -> int:

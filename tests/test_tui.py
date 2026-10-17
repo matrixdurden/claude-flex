@@ -1,14 +1,15 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from textual.widgets import Input, OptionList
 
 from claude_flex import accounts, service
 from claude_flex.store import Store
-from claude_flex.tui import Choice, FlexApp, Form, percent
+from claude_flex.tui import Choice, FlexApp, Form, LoginDialog, percent
 from tests.helpers import token
+from tests.test_claude import claude_credential
 
 
 class FakeUsage:
@@ -17,6 +18,32 @@ class FakeUsage:
 
     def all(self):
         return self.cached()
+
+
+class FakeLogin:
+    def __init__(self, store, *, complete=True):
+        self.store = store
+        self.complete = complete
+        self.started = []
+        self.job = None
+
+    def start(self, label, **options):
+        self.started.append({"label": label, **options})
+        self.job = {"id": "test-job", "name": label, "provider": options["provider"], "method": options["method"], "status": "starting", "url": None, "device_code": None}
+        return dict(self.job)
+
+    def get(self, _):
+        if self.complete and self.job["status"] == "starting":
+            provider = self.job["provider"]
+            credential = accounts.normalize(claude_credential() if provider == "claude" else {"access": token("new-account")})
+            accounts.import_account(self.store, self.job["name"], credential)
+            self.job["status"] = "complete"
+        elif not self.complete:
+            self.job.update(status="waiting", url="https://auth.openai.com/oauth/authorize?state=test")
+        return dict(self.job)
+
+    def cancel(self, _):
+        self.job["status"] = "cancelled"
 
 
 class TuiTests(unittest.IsolatedAsyncioTestCase):
@@ -57,12 +84,74 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsInstance(app.screen, Choice)
             await pilot.press("enter")
             await pilot.pause()
-            self.assertIsInstance(app.screen, Form)
-            await pilot.press("w", "o", "r", "k")
-            self.assertEqual(app.screen.query_one(Input).value, "work")
+            self.assertIsInstance(app.screen, Choice)
+            self.assertEqual(app.screen.title_text, "Claude sign-in")
+            self.assertFalse(list(app.screen.query(Input)))
             await pilot.press("escape")
             await pilot.pause()
             self.assertTrue(app.main_screen())
+
+    async def test_claude_sign_in_adds_models_without_any_form(self):
+        logins = FakeLogin(self.store)
+        app = FlexApp(self.store, usage=FakeUsage(), logins=logins)
+        async def backend():
+            pass
+        app.backend = backend
+        async with app.run_test() as pilot:
+            await pilot.press("tab", "a")
+            await pilot.pause()
+            await pilot.press("enter")  # Claude
+            await pilot.pause()
+            await pilot.press("enter")  # Browser
+            await pilot.pause(0.8)
+            self.assertTrue(app.main_screen())
+            self.assertEqual(app.section, "models")
+            self.assertIn("claude", self.store.load()["accounts"])
+            self.assertEqual(logins.started[0]["label"], "claude")
+            models = self.store.load()["models"]
+            self.assertEqual({model["label"] for model in models.values() if model["provider"] == "claude-oauth"}, {"Claude Opus", "Claude Sonnet", "Claude Haiku"})
+            self.assertIn("Claude", app.export_screenshot())
+
+    async def test_chatgpt_exposes_device_code_and_auto_names_account(self):
+        logins = FakeLogin(self.store)
+        app = FlexApp(self.store, usage=FakeUsage(), logins=logins)
+        async def backend():
+            pass
+        app.backend = backend
+        async with app.run_test() as pilot:
+            await pilot.press("tab", "a")
+            await pilot.pause()
+            await pilot.press("down", "enter")  # ChatGPT
+            await pilot.pause()
+            self.assertEqual([key for key, _ in app.screen.choices], ["browser", "link", "device", "import"])
+            await pilot.press("down", "down", "enter")
+            await pilot.pause(0.8)
+            self.assertEqual(logins.started[0]["method"], "device")
+            self.assertIn("chatgpt", self.store.load()["accounts"])
+            self.assertEqual(app.section, "models")
+            self.assertEqual(len([model for model in self.store.load()["models"].values() if model["provider"] == "codex"]), 4)
+
+    async def test_link_method_displays_link_without_opening_browser(self):
+        logins = FakeLogin(self.store, complete=False)
+        app = FlexApp(self.store, usage=FakeUsage(), logins=logins)
+        async def backend():
+            pass
+        app.backend = backend
+        with patch("claude_flex.tui.service.open_browser") as browser:
+            async with app.run_test() as pilot:
+                await pilot.press("tab", "a")
+                await pilot.pause()
+                await pilot.press("enter")  # Claude
+                await pilot.pause()
+                await pilot.press("down", "enter")  # Link
+                await pilot.pause(0.6)
+                self.assertIsInstance(app.screen, LoginDialog)
+                self.assertFalse(app.screen.open_automatically)
+                browser.assert_not_called()
+                await pilot.press("escape")
+                await pilot.pause()
+                self.assertTrue(app.main_screen())
+                self.assertNotIn("claude", self.store.load()["accounts"])
 
     async def test_model_form_can_be_completed_without_shell_commands(self):
         app = FlexApp(self.store, usage=FakeUsage())

@@ -124,10 +124,13 @@ class Form(Dialog):
 
 
 class LoginDialog(Dialog):
-    def __init__(self, manager, job):
+    BINDINGS = [Binding("p", "paste_callback", "Paste return URL", show=False), *Dialog.BINDINGS]
+
+    def __init__(self, manager, job, *, open_automatically=True):
         super().__init__()
         self.manager, self.job = manager, job
         self.opened = False
+        self.open_automatically = open_automatically
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
@@ -135,10 +138,14 @@ class LoginDialog(Dialog):
             yield Static("Choose the right account in your browser.\nYour password stays with the provider.", classes="muted")
             yield Static("Preparing sign-in…", id="login-status", markup=False)
             yield Static("", id="device-code", markup=False)
+            yield Static("", id="sign-in-link", markup=False)
             with Horizontal(classes="buttons"):
-                yield Button("Open browser", id="browser", variant="primary", disabled=True)
-                yield Button("Paste callback", id="callback", disabled=True)
+                if self.open_automatically:
+                    yield Button("Open browser", id="browser", variant="primary", disabled=True)
+                else:
+                    yield Button("Copy link", id="copy-link", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel")
+            yield Static("p paste return URL if needed · esc cancel", classes="hint")
 
     def on_mount(self):
         self.set_interval(0.4, self.poll)
@@ -148,10 +155,11 @@ class LoginDialog(Dialog):
         state = self.job["status"]
         self.query_one("#login-status", Static).update({"starting": "Preparing sign-in…", "waiting": "Waiting for browser sign-in…", "importing": "Saving account…"}.get(state, self.job.get("error") or state))
         ready = bool(self.job.get("url"))
-        self.query_one("#browser", Button).disabled = not ready
-        self.query_one("#callback", Button).disabled = not ready or self.job["method"] == "device"
+        primary = "#browser" if self.open_automatically else "#copy-link"
+        self.query_one(primary, Button).disabled = not ready
         self.query_one("#device-code", Static).update(self.job.get("device_code") or "")
-        if ready and not self.opened:
+        self.query_one("#sign-in-link", Static).update(Text(self.job["url"] or "") if not self.open_automatically else "")
+        if ready and not self.opened and self.open_automatically:
             self.opened = True
             try:
                 await asyncio.to_thread(service.open_browser, self.job["url"])
@@ -169,8 +177,12 @@ class LoginDialog(Dialog):
                 await asyncio.to_thread(service.open_browser, self.job["url"])
             except (FlexError, OSError):
                 self.query_one("#login-status", Static).update(Text(self.job["url"]))
-        elif event.button.id == "callback":
-            self.app.push_screen(Form("Paste browser callback", [("url", "The localhost URL shown after sign-in", "", False)]), self.handle_callback)
+        elif event.button.id == "copy-link" and self.job.get("url"):
+            self.app.copy_to_clipboard(self.job["url"])
+
+    def action_paste_callback(self):
+        if self.job["method"] == "browser" and self.job.get("url"):
+            self.app.push_screen(Form("Paste return URL", [("url", "The localhost URL shown after sign-in", "", False)]), self.handle_callback)
 
     def handle_callback(self, values):
         if values:
@@ -397,25 +409,41 @@ class FlexApp(App):
             meta = config["accounts"][renew]
             provider, label = accounts.provider_of(meta), renew
         else:
-            provider = await self.push_screen_wait(Choice("Add an account", [("claude", "Claude · Pro / Max"), ("codex", "ChatGPT · Plus / Pro"), ("import", "Connect existing OpenCode login")]))
+            provider = await self.push_screen_wait(Choice("Choose provider", [("claude", "Claude"), ("codex", "ChatGPT")]))
             if not provider:
                 return
-            values = await self.push_screen_wait(Form("Account name", [("name", "A short label", "", False)]))
-            if not values:
-                return
-            label = values["name"]
-            if provider == "import":
-                await self.perform(service.import_opencode, self.store, label)
-                self.message("Account connected.")
-                return
+            label = service.next_account_name(self.store, provider)
+        methods = [("browser", "Sign in with browser"), ("link", "Use a sign-in link")]
+        if provider == "codex":
+            methods += [("device", "Sign in with device code")]
+            if not renew:
+                methods += [("import", "Use existing OpenCode sign-in")]
+        method = await self.push_screen_wait(Choice("Claude sign-in" if provider == "claude" else "ChatGPT sign-in", methods))
+        if not method:
+            return
+        if method == "import":
+            await self.perform(service.import_opencode, self.store, label)
+            self.account_connected(provider)
+            return
         await self.backend()
-        job = self.logins.start(label, provider=provider, replace=bool(renew), weight=meta["weight"] if renew else 1, priority=meta["priority"] if renew else 0)
-        result = await self.push_screen_wait(LoginDialog(self.logins, job))
+        job = self.logins.start(label, method="device" if method == "device" else "browser", provider=provider, replace=bool(renew), weight=meta["weight"] if renew else 1, priority=meta["priority"] if renew else 0)
+        result = await self.push_screen_wait(LoginDialog(self.logins, job, open_automatically=method != "link"))
         if result and result["status"] == "complete":
             service.default_account_models(self.store, provider)
-            self.message("Account connected.")
+            if renew:
+                self.message("Sign-in renewed.")
+            else:
+                self.account_connected(provider)
         elif result and result.get("error"):
             self.message(result["error"], True)
+
+    def account_connected(self, provider):
+        target = "claude-oauth" if provider == "claude" else "codex"
+        models = self.store.load()["models"]
+        self.selection["models"] = next((index for index, model in enumerate(models.values()) if model["provider"] == target), 0)
+        self.section = "models"
+        self.query_one(Tabs).active = "models"
+        self.message("Account connected. Choose a model and press Enter.")
 
     async def add_model(self):
         config = self.store.load()
