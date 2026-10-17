@@ -3,8 +3,10 @@ import io
 import socket
 import tarfile
 import tempfile
+import threading
 import unittest
 import urllib.error
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -58,6 +60,36 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaises(FlexError):
                 install(self.store)
         self.assertEqual(self.store.load()["gateway"]["binary"], "")
+
+    def test_public_release_download_follows_redirect_without_credentials(self):
+        content = self.archive()
+        auth_headers = []
+
+        class AssetServer(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                auth_headers.append(self.headers.get("Authorization"))
+                if self.path == "/release":
+                    self.send_response(302)
+                    self.send_header("Location", "/asset")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), AssetServer)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        asset = {"name": "CLIProxyAPI_8.0.32_linux_amd64.tar.gz", "digest": "sha256:" + hashlib.sha256(content).hexdigest(), "browser_download_url": f"http://127.0.0.1:{server.server_port}/release"}
+        with patch("claude_flex.gateway.platform.system", return_value="Linux"), patch("claude_flex.gateway.platform.machine", return_value="x86_64"), patch("claude_flex.gateway.executable_name", return_value="cli-proxy-api"), patch("claude_flex.gateway.request_json", return_value={"assets": [asset]}):
+            binary = install(self.store)
+        self.assertEqual(binary.read_bytes(), b"synthetic executable")
+        self.assertEqual(auth_headers, [None, None])
 
     def test_stale_pid_never_signals_an_unrelated_process(self):
         gateway = Gateway(self.store)

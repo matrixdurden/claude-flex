@@ -28,10 +28,11 @@ PRESETS = {
 }
 
 
-def opener(url: str):
+def opener(url: str, *, allow_redirects=False):
+    handlers = [] if allow_redirects else [NoRedirect()]
     if urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"}:
-        return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    return urllib.request.build_opener(NoRedirect())
+        handlers.append(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener(*handlers)
 
 
 def request_json(url: str, *, headers: dict | None = None, body: dict | None = None, timeout=20):

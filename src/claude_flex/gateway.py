@@ -48,10 +48,12 @@ def install(store: Store, version: str = BACKEND_VERSION) -> Path:
     if not digest.startswith("sha256:"):
         raise FlexError("Release has no SHA-256 digest; refusing an unverified binary.")
     try:
-        with opener(asset["browser_download_url"]).open(asset["browser_download_url"], timeout=120) as response:
+        # Public release downloads redirect to GitHub's asset host. No provider
+        # credential is attached, unlike authenticated model-catalog requests.
+        with opener(asset["browser_download_url"], allow_redirects=True).open(asset["browser_download_url"], timeout=120) as response:
             content = response.read()
     except OSError:
-        raise FlexError("Backend download failed. Retry 'gateway install'.") from None
+        raise FlexError("Backend download failed. Reopen Claude Flex and retry the connection.") from None
     if hashlib.sha256(content).hexdigest() != digest.removeprefix("sha256:"):
         raise FlexError("Backend checksum mismatch.")
     filename = executable_name()
