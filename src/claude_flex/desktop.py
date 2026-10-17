@@ -80,7 +80,10 @@ def launch(store: Store):
     gateway = Gateway(store)
     gateway.start()
     if os.name == "nt" or os.environ.get("WSL_DISTRO_NAME"):
-        powershell("Start-Process explorer.exe -ArgumentList 'shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude'")
+        app_id = powershell("(Get-StartApps | Where-Object { $_.Name -eq 'Claude' } | Select-Object -First 1).AppID")
+        if not app_id:
+            raise FlexError("Claude Desktop is not installed.")
+        powershell("Start-Process explorer.exe -ArgumentList " + ps_quote("shell:AppsFolder\\" + app_id))
     elif sys.platform == "darwin":
         subprocess.Popen(["open", "-a", "Claude"])
     else:
@@ -88,6 +91,44 @@ def launch(store: Store):
         if not command:
             raise FlexError("Claude Desktop is not installed. Install it, then open the Claude Flex profile.")
         subprocess.Popen([command], start_new_session=True)
+
+
+def running_instance() -> str | None:
+    if os.name == "nt" or os.environ.get("WSL_DISTRO_NAME"):
+        value = powershell("Get-Process -Name Claude -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1 | ForEach-Object { '{0}:{1}' -f $_.Id, $_.StartTime.Ticks }")
+        return value or None
+    command = shutil.which("pgrep")
+    if not command:
+        return None
+    name = "Claude" if sys.platform == "darwin" else "claude-desktop"
+    process = subprocess.run([command, "-o", "-x", name], capture_output=True, text=True, check=False)
+    return process.stdout.strip() or None
+
+
+def open_profile(store: Store, library: Path | None = None) -> bool:
+    """Apply the selected account's profile, open Desktop, report an actual stale app."""
+    library = library or library_path()
+    meta = read_json(library / "_meta.json", {"entries": []})
+    entry = next((item for item in meta["entries"] if item.get("name") == "Claude Flex"), None)
+    previous = {}
+    if entry:
+        try:
+            uuid.UUID(entry["id"])
+        except (KeyError, ValueError, TypeError):
+            raise FlexError("Invalid Desktop profile ID.") from None
+        previous = read_json(library / (entry["id"] + ".json"), {})
+    changed = previous != desktop_profile(store) or not entry or meta.get("appliedId") != entry["id"]
+    marker = store.runtime / "desktop-restart.json"
+    pending = read_json(marker, {})
+    instance = running_instance()
+    restart_required = bool(instance and (changed or pending.get("instance") == instance))
+    apply(store, library, activate=True)
+    if restart_required:
+        write_json(marker, {"instance": instance})
+    else:
+        marker.unlink(missing_ok=True)
+    launch(store)
+    return restart_required
 
 
 def shortcut(store: Store) -> str:

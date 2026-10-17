@@ -19,8 +19,11 @@ the native Claude Code user settings with connection credentials and the
 not Claude-family aliases. An original settings backup stays in private Flex
 state; unrelated permissions and preferences remain intact.
 
-Users then run the installed `claude` directly and select models in `/model`.
-The optional launcher does not inject `--model`, temporary session settings,
+Enter selects the account and suspends Textual while the installed `claude`
+runs in the current terminal and project directory. Exit the child to return to
+the account list. The **d** key selects the same account, applies its Desktop
+profile and opens/focuses the Desktop app. Users can also run `claude` directly.
+The launcher does not inject `--model`, temporary session settings,
 family-model pins or subagent-model pins. The native user's model choice is
 preserved across same-provider account changes. A cross-provider switch picks
 an available starting model, which remains changeable in the native menu.
@@ -102,6 +105,12 @@ Optional official Desktop integration writes one local `configLibrary` entry
 named Claude Flex. Existing entries are retained. A full app restart is needed.
 WSL paths are detected dynamically. No application binaries or machine policies
 are modified. Terminal usage does not depend on Desktop being installed.
+
+Desktop opening automatically applies and activates the profile. If a running
+app has a changed profile, its process identity is recorded as pending restart.
+The short restart hint persists across repeated launch attempts and clears when
+the app is actually reopened with a different process. Existing work is not
+terminated by the launcher.
 
 ## Backend and compatibility
 

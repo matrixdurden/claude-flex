@@ -93,8 +93,12 @@ def main(argv=None):
             if args.action == "apply":
                 print(desktop.apply(store, activate=args.activate))
             elif args.action == "launch":
-                service.ensure_backend(store)
-                desktop.launch(store)
+                account = store.load().get("selected_account")
+                if not account:
+                    raise FlexError("Select an account in Claude Flex first.")
+                service.activate_account(store, account)
+                if desktop.open_profile(store):
+                    print("Restart Desktop.")
             else:
                 print(desktop.shortcut(store))
         elif args.command == "doctor":

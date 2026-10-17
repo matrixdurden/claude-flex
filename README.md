@@ -27,16 +27,16 @@ claude-flex
 ```
 
 1. **a** → choose Claude / ChatGPT → choose a sign-in method → sign in.
-2. Select an account and press **Enter** to connect it to Claude Code.
-3. Use your normal **`claude`** command. Choose the model with **`/model`**.
+2. Choose an account. **Enter** opens Claude Code in this terminal; **d** opens Desktop.
+3. Choose the model in Claude Code's own **`/model`** menu or Desktop picker.
 
 That's the separation: **Flex selects accounts; Claude Code selects models.**
-No model list, model picker or model-launch buttons appear in Flex. Your native
+No model list or model picker appears in Flex. Your native
 model choice is preserved when switching accounts of the same provider.
 
-Daily coding uses `claude` directly; reopen Flex only to change accounts or
-inspect limits. You can also open Claude Code from **s → Open Claude Code**.
-Claude Desktop is optional. Linux, macOS, Windows and WSL are supported.
+Exit Claude Code to return to Flex. The account connection also stays available
+to your normal `claude` command. Claude Desktop is optional.
+Linux, macOS, Windows and WSL are supported.
 
 ## Accounts
 
@@ -47,8 +47,8 @@ Claude Desktop is optional. Linux, macOS, Windows and WSL are supported.
 - Automatic account names and duplicate-identity detection.
 - Account renewal, enable/pause, removal, weights and provider-specific pools.
 
-Pressing Enter enables the chosen account within its provider pool and updates
-the Claude Code connection. Other providers' accounts aren't disabled. Changes
+Enter and **d** select the highlighted account, prepare the connection and open
+the chosen application. Other providers' accounts aren't disabled. Changes
 may briefly restart the gateway; finish an active generation before switching.
 
 ## Models belong in `/model`
@@ -68,13 +68,13 @@ up-to-date version for the latest behavior. Provider model support and usage
 limits still apply. Models need reliable tool-call support to act as coding agents.
 
 OpenAI, Anthropic, Gemini, OpenRouter, Groq, GitHub Models, Ollama, LM Studio
-and compatible API sources can be connected under **s → Connect an API provider**.
+and compatible API sources can be connected under **s → API provider**.
 API keys use a masked input. Discovered models appear in Claude Code, not Flex.
 
 ## Limits
 
-The account list shows **remaining** short/long-window percentages and reset
-times. Detailed provider/model windows are under **s → Selected account details**.
+The account list shows **remaining** short/long-window percentages.
+Reset times and detailed provider/model windows are under **s → Account details**.
 
 - ChatGPT accounts: **Codex usage**, not general ChatGPT chat-message quotas.
 - Claude accounts: provider-returned Claude OAuth usage windows.
@@ -88,13 +88,19 @@ times. Detailed provider/model windows are under **s → Selected account detail
 | Key | Action |
 | --- | --- |
 | `↑` / `↓` | Choose an account |
-| `Enter` | Use the account in Claude Code |
+| `Enter` | Open terminal Claude Code with the selected account |
+| `d` | Open Claude Desktop with the selected account |
 | `a` | Add an account |
 | `Space` | Enable/pause an account in the pool |
 | `r` | Refresh limits and the native model catalog |
-| `s` | Details, renewal, pools and optional Desktop integration |
+| `s` | Details, renewal and advanced settings |
 | `Esc` | Back/cancel sign-in |
 | `q` | Exit Flex; the selected connection remains available |
+
+Desktop's connection profile is applied automatically before opening. If an
+already-running Desktop app has an older profile, Flex shows only **Restart
+Desktop.** until the app has been fully reopened. The native model picker stays
+in charge in both terminal and Desktop.
 
 ## Connection and storage
 

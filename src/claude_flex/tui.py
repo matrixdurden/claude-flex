@@ -69,7 +69,7 @@ class Choice(Dialog):
             if self.subtitle:
                 yield Static(self.subtitle, classes="muted", markup=False)
             yield OptionList(*(Option(text, id=key) for key, text in self.choices), id="choices")
-            yield Static("↑↓ select    enter continue    esc back", classes="hint")
+            yield Static("enter select · esc back", classes="hint")
 
     def on_mount(self):
         self.query_one(OptionList).focus()
@@ -94,7 +94,7 @@ class Form(Dialog):
                 yield Input(value=str(value), password=password, id=key)
             yield Static("", id="form-error", classes="error", markup=False)
             with Horizontal(classes="buttons"):
-                yield Button("Continue", id="submit", variant="primary")
+                yield Button("Save", id="submit", variant="primary")
                 yield Button("Back", id="cancel")
 
     def on_mount(self):
@@ -119,7 +119,7 @@ class Form(Dialog):
     def submit(self):
         values = {key: self.query_one(f"#{key}", Input).value.strip() for key, *_ in self.fields}
         if any(not value for value in values.values()):
-            self.query_one("#form-error", Static).update("Fill in each field.")
+            self.query_one("#form-error", Static).update("Required fields are empty.")
         else:
             self.dismiss(values)
 
@@ -136,7 +136,6 @@ class LoginDialog(Dialog):
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
             yield Static("Sign in to Claude" if self.job["provider"] == "claude" else "Sign in to ChatGPT", classes="dialog-title")
-            yield Static("Choose the right account in your browser.\nYour password stays with the provider.", classes="muted")
             yield Static("Preparing sign-in…", id="login-status", markup=False)
             yield Static("", id="device-code", markup=False)
             yield Static("", id="sign-in-link", markup=False)
@@ -146,7 +145,7 @@ class LoginDialog(Dialog):
                 else:
                     yield Button("Copy link", id="copy-link", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel")
-            yield Static("p paste return URL if needed · esc cancel", classes="hint")
+            yield Static("p return URL · esc cancel", classes="hint")
 
     def on_mount(self):
         self.set_interval(0.4, self.poll)
@@ -207,18 +206,20 @@ class FlexApp(App):
     CSS_PATH = Path(__file__).with_name("tui.tcss")
     BINDINGS = [
         Binding("a", "add", "Add", show=False),
+        Binding("d", "desktop", "Desktop", show=False),
         Binding("space", "toggle", "Toggle", show=False),
         Binding("r", "refresh", "Refresh", show=False),
         Binding("s", "settings", "Settings", show=False),
         Binding("q", "quit", "Quit", show=False),
     ]
 
-    def __init__(self, store: Store, *, usage=None, logins=None, launch=None, catalog_sync=None, activate=None):
+    def __init__(self, store: Store, *, usage=None, logins=None, launch=None, catalog_sync=None, activate=None, desktop_launch=None):
         super().__init__()
         self.store = store
         self.usage = usage or UsageService(store)
         self.logins = logins or LoginManager(store)
         self.launch = launch or service.run_claude
+        self.desktop_launch = desktop_launch or desktop.open_profile
         self.activate = activate or service.activate_account
         self.catalog_sync = catalog_sync or service.sync_models
         self.catalog_refreshing = False
@@ -231,7 +232,6 @@ class FlexApp(App):
         with Vertical(id="shell"):
             yield Static(Text.assemble(("claude", "bold"), (" flex", ACCENT)), id="brand")
             yield OptionList(id="list")
-            yield Static("", id="detail", markup=False)
             yield Static("", id="message", markup=False)
             yield Static("", id="keys", classes="hint", markup=False)
 
@@ -250,7 +250,7 @@ class FlexApp(App):
         return len(self.screen_stack) == 1
 
     def check_action(self, action, parameters):
-        if action in {"quit", "add", "settings", "toggle", "refresh"} and not self.main_screen():
+        if action in {"quit", "add", "desktop", "settings", "toggle", "refresh"} and not self.main_screen():
             return False
         return True
 
@@ -276,37 +276,20 @@ class FlexApp(App):
             self.entries[key] = ("accounts", row["name"])
             rows.append(Option(line, id=key))
         if not rows:
-            rows.append(Option(Text("Connect an account to get started.", style=MUTED), disabled=True))
+            rows.append(Option(Text("No accounts", style=MUTED), disabled=True))
         if self.selected_key not in self.entries:
             self.selected_key = f"account:{config.get('selected_account')}" if f"account:{config.get('selected_account')}" in self.entries else next(iter(self.entries), None)
         self.listing.clear_options()
         self.listing.add_options(rows)
         self.listing.highlighted = next((index for index, option in enumerate(rows) if option.id == self.selected_key), None)
-        self.query_one("#keys", Static).update("↑↓ select   enter use   a add   r refresh   s settings   q quit")
-        self.update_detail()
+        self.query_one("#keys", Static).update("enter terminal · d desktop · a add · s more · q quit")
 
     def current(self):
         return self.entries.get(self.selected_key, (None, None))[1]
 
-    def update_detail(self):
-        label = self.current()
-        detail = self.query_one("#detail", Static)
-        if not label:
-            detail.update("a connect an account")
-        else:
-            usage = self.usage.cached().get(label)
-            if not usage:
-                detail.update("Loading limits…" if self.refreshing else "Limits unavailable · r to refresh")
-            elif usage.get("error"):
-                detail.update(Text(plain(usage["error"]), style="#d8ae79"))
-            else:
-                windows = usage.get("windows", [])
-                detail.update(" · ".join(f"{item['title']}: {reset_text(item['resets_at'])}" for item in windows[:2]) or "No quota windows returned.")
-
     @on(OptionList.OptionHighlighted, "#list")
     def highlighted(self, event):
         self.selected_key = event.option.id
-        self.update_detail()
 
     def message(self, text, error=False):
         self.query_one("#message", Static).update(Text(plain(text), style="#e1a29a" if error else ACCENT))
@@ -322,7 +305,7 @@ class FlexApp(App):
                 self.draw()
         except Exception:
             if self.main_screen():
-                self.message("Limits unavailable. Press r to retry.", True)
+                self.message("Limits unavailable.", True)
         finally:
             self.refreshing = False
 
@@ -341,10 +324,10 @@ class FlexApp(App):
             if self.main_screen():
                 self.draw()
                 if force and report.get("errors"):
-                    self.message("Some model lists are unavailable. Existing models were kept.", True)
+                    self.message("Models unavailable.", True)
         except (FlexError, OSError):
             if self.main_screen() and force:
-                self.message("Model list unavailable. Press r to retry.", True)
+                self.message("Models unavailable.", True)
         finally:
             self.catalog_refreshing = False
 
@@ -357,7 +340,7 @@ class FlexApp(App):
             self.working = False
 
     async def backend(self):
-        self.message("Preparing gateway…")
+        self.message("Preparing…")
         await self.perform(service.ensure_backend, self.store)
 
     @on(OptionList.OptionSelected, "#list")
@@ -366,14 +349,24 @@ class FlexApp(App):
         self.use_account(self.current())
 
     @work(exclusive=True, group="operations")
-    async def use_account(self, label):
+    async def use_account(self, label, *, target="terminal"):
         try:
-            self.message("Connecting account…")
+            self.message("Opening…")
             await self.perform(self.activate, self.store, label)
+            if target == "desktop":
+                restart_required = await self.perform(self.desktop_launch, self.store)
+                self.message("Restart Desktop." if restart_required else "")
+            else:
+                with self.suspend():
+                    code = await asyncio.to_thread(self.launch, self.store)
+                self.message(f"Exit {code}." if code else "")
             self.draw()
-            self.message(f"{label} selected. Open claude; choose your model with /model.")
         except (FlexError, OSError) as exc:
             self.message(str(exc), True)
+
+    def action_desktop(self):
+        if self.main_screen() and self.current():
+            self.use_account(self.current(), target="desktop")
 
     def action_add(self):
         if self.main_screen():
@@ -416,18 +409,18 @@ class FlexApp(App):
         if result and result["status"] == "complete":
             report = await self.perform(service.default_account_models, self.store, provider)
             if renew:
-                self.message("Sign-in renewed.")
+                self.message("")
             else:
                 await self.account_connected(label)
             if report.get("errors"):
-                self.message("Account connected. Model list unavailable; press r to retry.", True)
+                self.message("Models unavailable.", True)
         elif result and result.get("error"):
             self.message(result["error"], True)
 
     async def account_connected(self, label):
         self.selected_key = f"account:{label}"
         await self.perform(self.activate, self.store, label)
-        self.message("Account connected. Open claude and choose a model with /model.")
+        self.message("")
 
     async def connect_provider(self):
         preset = await self.push_screen_wait(Choice("Connect provider", [(key, key.title()) for key in PRESETS] + [("__custom", "Custom endpoint")]))
@@ -475,10 +468,11 @@ class FlexApp(App):
             usage = self.usage.cached().get(label, {})
             detail = [f"{row['email']} · {row['plan']}"]
             for item in usage.get("windows", []):
-                detail.append(f"{item['scope']} · {item['title']}: {item['remaining_percent']}% left · {reset_text(item['resets_at'])}")
+                remaining = f"{item['remaining_percent']:g}%" if item["remaining_percent"] is not None else "—"
+                detail.append(f"{item['scope']} · {item['title']}: {remaining} left · {reset_text(item['resets_at'])}")
             if usage.get("error"):
                 detail.append(usage["error"])
-            action = await self.push_screen_wait(Choice(label, [("select", "Use only this account · same provider"), ("toggle", "Pause account" if row["enabled"] else "Enable account"), ("renew", "Renew sign-in"), ("edit", "Weight and priority"), ("remove", "Remove account")], "\n".join(detail)))
+            action = await self.push_screen_wait(Choice(label, [("select", "Use without opening"), ("toggle", "Pause" if row["enabled"] else "Enable"), ("renew", "Sign in again"), ("edit", "Routing"), ("remove", "Remove")], "\n".join(detail)))
             if action == "select":
                 await self.perform(self.activate, self.store, label)
             elif action == "toggle":
@@ -504,12 +498,9 @@ class FlexApp(App):
     @work(exclusive=True, group="operations")
     async def settings_flow(self):
         try:
-            action = await self.push_screen_wait(Choice("Settings", [("details", "Selected account details"), ("claude", "Open Claude Code"), ("provider", "Connect an API provider"), ("pool", "Account pool"), ("all", "Enable all accounts"), ("desktop", "Update Claude Desktop profile"), ("launch", "Open Claude Desktop"), ("stop", "Stop gateway")]))
+            action = await self.push_screen_wait(Choice("Settings", [("details", "Account details"), ("provider", "API provider"), ("pool", "Account pool"), ("all", "Enable all"), ("stop", "Stop gateway")]))
             if action == "details" and self.current():
                 await self.account_details(self.current())
-            elif action == "claude":
-                with self.suspend():
-                    await asyncio.to_thread(self.launch, self.store)
             elif action == "provider":
                 await self.connect_provider()
             elif action == "pool":
@@ -521,18 +512,9 @@ class FlexApp(App):
                         render(self.store)
             elif action == "all":
                 await self.perform(accounts.select_accounts, self.store, "all")
-            elif action == "desktop":
-                await self.perform(desktop.apply, self.store, activate=True)
-                self.message("Desktop profile updated. Fully quit and reopen Claude Desktop.")
-            elif action == "launch":
-                await self.backend()
-                await self.perform(desktop.launch, self.store)
-            elif action == "backend":
-                await self.backend()
-                self.message("Gateway ready.")
             elif action == "stop":
                 await self.perform(Gateway(self.store).stop)
-                self.message("Gateway stopped.")
+                self.message("")
             self.draw()
         except (FlexError, OSError, ValueError) as exc:
             self.message(str(exc), True)

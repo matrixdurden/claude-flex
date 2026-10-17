@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -30,7 +31,12 @@ class FlexApp(BaseFlexApp):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("catalog_sync", lambda *args, **kwargs: {"added": [], "errors": {}})
         kwargs.setdefault("activate", fake_activate)
+        kwargs.setdefault("launch", Mock(return_value=0))
+        kwargs.setdefault("desktop_launch", Mock(return_value=False))
         super().__init__(*args, **kwargs)
+
+    def suspend(self):
+        return nullcontext()
 
 
 class FakeLogin:
@@ -81,18 +87,54 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("85%", svg)
             self.assertNotIn("GPT / Plus", svg.replace("&#160;", " "))
 
-    async def test_enter_switches_account_without_launching_or_selecting_a_model(self):
+    async def test_enter_selects_account_then_opens_terminal_without_selecting_a_model(self):
         activate = Mock(side_effect=fake_activate)
-        launch = Mock()
+        launch = Mock(return_value=0)
+        calls = Mock()
+        calls.attach_mock(activate, "activate")
+        calls.attach_mock(launch, "launch")
         app = FlexApp(self.store, usage=FakeUsage(), activate=activate, launch=launch)
         async with app.run_test() as pilot:
             await pilot.press("enter")
             await pilot.pause(0.3)
             self.assertTrue(app.main_screen())
         activate.assert_called_once_with(self.store, "main")
-        launch.assert_not_called()
+        launch.assert_called_once_with(self.store)
+        self.assertEqual([call[0] for call in calls.mock_calls], ["activate", "launch"])
         self.assertEqual(self.store.load()["selected_account"], "main")
         self.assertEqual(self.store.load()["active"], "plus")
+
+    async def test_desktop_key_selects_account_and_opens_desktop_not_terminal(self):
+        activate = Mock(side_effect=fake_activate)
+        launch = Mock(return_value=0)
+        desktop = Mock(return_value=False)
+        app = FlexApp(self.store, usage=FakeUsage(), activate=activate, launch=launch, desktop_launch=desktop)
+        async with app.run_test() as pilot:
+            await pilot.press("d")
+            await pilot.pause(0.3)
+            self.assertTrue(app.main_screen())
+        activate.assert_called_once_with(self.store, "main")
+        desktop.assert_called_once_with(self.store)
+        launch.assert_not_called()
+
+    async def test_desktop_restart_hint_is_short_and_only_shown_when_needed(self):
+        app = FlexApp(self.store, usage=FakeUsage(), desktop_launch=Mock(return_value=True))
+        async with app.run_test() as pilot:
+            await pilot.press("d")
+            await pilot.pause(0.3)
+            self.assertIn("Restart", app.export_screenshot())
+            self.assertNotIn("Open claude", app.export_screenshot().replace("&#160;", " "))
+
+    async def test_terminal_return_leaves_no_instruction_message(self):
+        app = FlexApp(self.store, usage=FakeUsage())
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            screenshot = app.export_screenshot().replace("&#160;", " ")
+            self.assertNotIn("Open claude", screenshot)
+            self.assertNotIn("selected.", screenshot)
+            self.assertNotIn("choose your model", screenshot)
+            self.assertNotIn("reset unknown", screenshot)
 
     async def test_arrow_navigation_selects_another_account(self):
         accounts.import_account(self.store, "work", accounts.normalize({"access": token("work")}))
@@ -178,6 +220,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.2)
             self.assertIn("Sign-in", app.export_screenshot())
             self.assertIsNone(self.store.load().get("selected_account"))
+            app.launch.assert_not_called()
 
     async def test_live_catalog_updates_backend_not_account_screen(self):
         app = BaseFlexApp(self.store, usage=FakeUsage())

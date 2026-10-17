@@ -5,7 +5,6 @@ OptionList { background: transparent; border: none; padding: 0; height: auto; ma
 OptionList > .option-list--option { padding: 0 1; }
 OptionList > .option-list--option-highlighted { background: #212a27; color: #e1eee7; text-style: none; }
 OptionList:focus { border: none; }
-#detail { color: #858b96; height: auto; max-height: 3; padding: 0 1; }
 #message { height: auto; max-height: 3; padding: 0 1; }
 #keys { margin-top: 1; height: auto; padding: 0 1; }
 .hint, .muted { color: #858b96; }
