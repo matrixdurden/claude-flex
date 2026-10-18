@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-flex"
-version = "0.4.2"
-description = "A minimal Claude Code account switcher with native model selection"
+version = "0.5.0"
+description = "An isolated Claude Code account launcher with private terminal and Desktop profiles"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

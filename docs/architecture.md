@@ -1,138 +1,91 @@
 # Architecture
 
 ```text
-Textual TUI → account / provider / profile services
-                               ↓
-Claude Code CLI or Desktop → local CLIProxyAPI → selected provider
+Flex account list
+  ├─ account A → private gateway A → private Claude CLI / Desktop profile A
+  └─ account B → private gateway B → private Claude CLI / Desktop profile B
+
+Normal Claude installation and sessions remain separate.
 ```
 
-## Ownership
+## Ownership and isolation
 
-- **Claude Flex:** account switching TUI, account labels, native connection settings and local process lifecycle.
-- **CLIProxyAPI:** protocol conversion, streaming, tool translation, OAuth token
-  renewal, credential scheduling, quota cooldowns and retry/failover.
-- **Claude Code:** model selection, agent loop, prompts, files, terminal tools and permissions.
+Flex reuses the installed Claude executable, but supplies its own
+`CLAUDE_CONFIG_DIR` and credential namespace. Each account identity gets a
+stable profile under `instances/<identity>/`, with a separate gateway port,
+settings, conversations and native model choice. Selecting another account
+changes only the next-launch preference; it does not disable account peers,
+stop their gateways or rewrite their private Claude settings.
 
-The TUI shows accounts only. Enter activates the selected account and updates
-the native Claude Code user settings with connection credentials and the
-`modelPicker` lineup. Model IDs and display labels are genuine provider IDs,
-not Claude-family aliases. An original settings backup stays in private Flex
-state; unrelated permissions and preferences remain intact.
+The native CLI owns `/model`, tool execution, project instructions and its
+permission system. Flex has only account rows and limits. Profile isolation
+is not a filesystem VM: users still choose which project the agent works on.
 
-Enter selects the account and suspends Textual while the installed `claude`
-runs in the current terminal and project directory. Exit the child to return to
-the account list. The **d** key selects the same account, applies its Desktop
-profile and opens/focuses the Desktop app. Users can also run `claude` directly.
-The launcher does not inject `--model`, temporary session settings,
-family-model pins or subagent-model pins. The native user's model choice is
-preserved across same-provider account changes. A cross-provider switch picks
-an available starting model, which remains changeable in the native menu.
-
-## Catalog discovery
-
-The TUI asynchronously loads model catalogs at startup, after connecting an
-account/provider and on refresh. Codex uses its authenticated `/codex/models`
-endpoint; Claude uses its paginated `/v1/models` endpoint. Other provider
-adapters query their model-list API. Catalog requests are read-only and don't
-generate inference traffic. Multiple OAuth accounts contribute a union of
-model IDs, without duplicate connection profiles.
-
-Catalog refreshes are cached for five minutes, keyed by provider configuration
-and enabled account identities. Newly enabled/connected accounts invalidate
-that signature. Discovery adds profiles while preserving existing names,
-explicit context settings, the default selection, and legacy aliases.
-Failed queries do not erase existing routes. Image/audio-only and hidden
-entries are excluded from the native Claude Code model picker. No model rows
-or model selection workflows are rendered in Flex.
-
-## User state
+## State layout
 
 ```text
-config.json          versioned settings and credential references
-secrets.json         local gateway key and stored API keys
-auth/<label>.json    OAuth credentials; backend owns refresh
-bin/                 optional checksum-verified backend download
-runtime/
-  gateway.json       compiled CLIProxyAPI v8 config (JSON is valid YAML)
-  gateway.log
-  process.json       PID, checked against its command before signaling
-integration.json     native settings path that Flex connected
-backups/             original native user settings backup
+config.json                       accounts, sources, model catalog, preference
+secrets.json                      local client key and API-key references
+credentials/<identity>/account.json  authoritative OAuth refresh owner
+instances/<identity>/
+  config.json                     single-account gateway configuration
+  secrets.json                    separate downstream gateway key
+  claude-code/                    private native Claude configuration/history
+  runtime/                        gateway process record, logs and compiled config
+backups/                          recovery copies and one-time migration records
 ```
 
-JSON writes use atomic replacement. CLI mutations use advisory file locks.
-Credential edits pause an owned gateway before changing a refreshable auth file.
-Linked OpenCode imports are access-only; OpenCode keeps refresh ownership.
-Refreshing a linked source never silently changes its account identity.
+The account runtime points at its one authoritative credential directory.
+Token refresh does not create another mutable refresh-token owner. Linked
+OpenCode accounts remain access-only snapshots refreshed from their specific
+source file; external refresh ownership is retained. Credential migration
+refuses to stop an older shared Flex gateway while that legacy session is live.
 
-On POSIX, private directories are 0700 and written credential JSON is 0600.
-Windows state relies on the user's LocalAppData ACL. No credentials are part of
-the repository, the README screenshot generator, or tests.
+Writes are atomic and private on POSIX. Process shutdown checks ownership by
+command/config path. Account selection never shuts down another account's
+runtime. Tests exercise concurrent real gateways against a local fake provider.
 
-## Routing
+## Native model catalogs
 
-OAuth accounts are marked `codex` or `claude`. The corresponding model sources
-are `codex` and `claude-oauth`; API-key Anthropic connections use the distinct
-`claude` provider kind. Selecting one account pauses only its provider peers.
+Live Codex, Claude and compatible-provider catalogs are queried read-only.
+Enabled account catalogs are unioned without duplicate connection rows and
+cached by provider/account identity. Failures preserve existing routes.
+Image/audio-only and hidden models are not shown as coding agents.
 
-OAuth model requests use native provider IDs. API-key routes use provider-prefixed
-IDs to distinguish overlapping upstream names. Stable old compatibility aliases
-remain only for older sessions, not in the visible picker. Claude Code's Default
-choice can normalize an unknown ID with a `claude-` prefix; that compatibility
-route maps back to the same GPT model, without impersonating Sonnet.
+The native CLI picker uses real provider IDs and labels. Desktop validates
+its model list against Claude-like routes, so it receives opaque compatible
+route IDs with genuine provider labels. These aliases contain no competing
+provider name and are compiled into the matching backend executor. Existing
+legacy route aliases remain for backward compatibility.
 
-The native menu replaces unavailable built-in options and limits the Default
-entry to configured routes. Selected-account metadata filters subscription
-models to the active account provider. Main-model and subagent-model overrides
-from the earlier Flex launcher are removed when connecting native settings.
+## Desktop process isolation
 
-Independent OAuth logins run in temporary directories. The callback URL is
-captured without exposing raw subprocess output to the TUI. A pasted localhost
-callback must match the pending state, expected port and provider callback path.
-Cancellation terminates the login subprocess and discards temporary credentials.
+Desktop is optional and detected before showing its shortcut key. Its installed
+binary is launched directly with process-local app-data/config variables and a
+private Chromium user-data path. Windows uses
+`%LOCALAPPDATA%/Claude-Flex/isolated/<identity>/`; its native OS USERPROFILE
+identity is retained so MSIX activation works. APPDATA, LOCALAPPDATA and
+CLAUDE_CONFIG_DIR point at Flex-owned subdirectories for that child process.
+No environment variable or registry policy is changed globally.
 
-## Quotas
+Flex writes only this private connection library. It never switches the normal
+Desktop library, copies normal cookies/history, signs out the user, kills the
+normal Desktop process or creates desktop shortcuts. Startup stdio is detached
+so GUI child processes do not keep the launcher's captured pipes open.
 
-The quota service reads provider-returned usage windows, not estimated local
-token counters. Codex uses `/backend-api/wham/usage`; Claude uses
-`api.anthropic.com/api/oauth/usage`. Requests never follow credential-bearing
-redirects. Missing percentages and reset timestamps remain unknown. Successful
-snapshots are cached and explicitly marked stale on later failure.
+## Permissions and migration
 
-## Permission preference
+Full access / Auto / Ask is a private Flex preference. Defaults and the explicit
+launcher flag apply only to the isolated engine. Fresh installations do not
+force full access. Normal Claude's permission rules are not read or rewritten.
 
-The optional private `permission_mode` setting is one of `bypassPermissions`,
-`auto`, or `manual`. Without a preference, native permission defaults are kept.
-When selected, it is merged into `permissions.defaultMode` without deleting
-allow/ask/deny rules; full access also records acceptance of the native bypass
-mode dialog. The launcher passes the chosen permission mode explicitly unless
-the caller supplies a native mode of their own. No hooks are disabled.
+Older versions wrote shared user settings. A one-time migration uses recorded
+backups and exact local routing credentials to remove only attributable Flex
+changes, preserving unrelated/new settings and saving a recovery snapshot.
+Native settings writers reject destinations outside their private profile.
 
-For WSL Desktop launches, only the permission preference is merged into the
-Windows user's native Claude settings. CLI routing credentials and model picker
-settings are not copied there. Permission-setting backups remain in private
-Flex state, with one backup per settings path.
+## Backend
 
-## Desktop
-
-Optional official Desktop integration writes one local `configLibrary` entry
-named Claude Flex. Existing entries are retained. A full app restart is needed.
-WSL paths are detected dynamically. No application binaries or machine policies
-are modified. Terminal usage does not depend on Desktop being installed.
-
-Desktop opening automatically applies and activates the profile. If a running
-app has a changed profile, its process identity is recorded as pending restart.
-The short restart hint persists across repeated launch attempts and clears when
-the app is actually reopened with a different process. Existing work is not
-terminated by the launcher.
-
-## Backend and compatibility
-
-CLIProxyAPI is pinned to 8.0.32. Downloads are checked against the SHA-256 digest
-in the GitHub release metadata and only the named executable is extracted.
-The backend remains an external dependency, rather than a fork.
-
-Claude OAuth and the usage parser are covered with synthetic fixtures and login
-process tests. Live Claude availability depends on the user's account and provider
-responses. Tool reliability depends on the chosen model; accepting an API format
-doesn't make every model a capable agent.
+CLIProxyAPI 8.0.32 is an external, pinned MIT dependency. Its release archive is
+SHA-256 verified and only the named executable is extracted. Public asset
+redirects are allowed; authenticated provider requests do not follow redirects.

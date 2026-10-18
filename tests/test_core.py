@@ -6,7 +6,13 @@ from unittest.mock import patch
 
 from claude_flex import accounts, desktop
 from claude_flex.cli import add_model, parser
-from claude_flex.compiler import cli_settings, compile_gateway, desktop_profile, model_alias
+from claude_flex.compiler import (
+    cli_settings,
+    compile_gateway,
+    desktop_alias,
+    desktop_profile,
+    model_alias,
+)
 from claude_flex.providers import add_key, add_provider, discover
 from claude_flex.store import FlexError, Store, read_json, validate, write_json
 from tests.helpers import token
@@ -62,7 +68,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual([row["model"] for row in before["modelPicker"]["options"]], ["test-upstream-one", "test-upstream-two"])
         self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", before["env"])
         self.assertNotEqual(model_alias("one"), model_alias("two"))
-        self.assertEqual({row["name"] for row in desktop_profile(self.store)["inferenceModels"]}, {"test-upstream-one", "test-upstream-two"})
+        self.assertEqual({row["name"] for row in desktop_profile(self.store)["inferenceModels"]}, {desktop_alias("one"), desktop_alias("two")})
 
     def test_provider_key_pool_compiles_without_secret_in_public_config(self):
         add_provider(self.store, "router", preset="openrouter")
@@ -141,18 +147,16 @@ class CoreTests(unittest.TestCase):
         value = accounts.normalize({"tokens": {"access_token": token(), "refresh_token": "test-refresh"}}, with_refresh=True)
         self.assertEqual(value["refresh_token"], "test-refresh")
 
-    def test_desktop_apply_preserves_user_profiles_and_is_idempotent(self):
+    def test_desktop_without_selected_account_does_not_modify_normal_profiles(self):
         self.model()
         library = Path(self.temp.name) / "library"
         existing = "00000000-0000-0000-0000-000000000001"
         write_json(library / "_meta.json", {"appliedId": existing, "entries": [{"id": existing, "name": "Personal"}]})
-        path = desktop.apply(self.store, library)
+        with self.assertRaises(FlexError):
+            desktop.apply(self.store, library)
         meta = read_json(library / "_meta.json")
         self.assertEqual(meta["appliedId"], existing)
-        self.assertEqual(len(meta["entries"]), 2)
-        self.assertEqual(path, desktop.apply(self.store, library, activate=True))
-        self.assertEqual(read_json(library / "_meta.json")["appliedId"], path.stem)
-        self.assertEqual(read_json(path)["inferenceModels"][0]["labelOverride"], "Test model")
+        self.assertEqual(len(meta["entries"]), 1)
 
     def test_cli_passthrough_and_secret_not_in_parser(self):
         args = parser().parse_args(["run", "--account", "main", "--", "-p", "hello", "--max-turns", "2"])

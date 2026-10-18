@@ -16,7 +16,7 @@ class NativeSettingsTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.store = Store(Path(self.temp.name) / "state")
         self.store.init()
-        self.path = Path(self.temp.name) / ".claude/settings.json"
+        self.path = self.store.home / "claude-code/settings.json"
         accounts.import_account(self.store, "gpt", accounts.normalize({"access": token()}))
         accounts.import_account(self.store, "claude", accounts.normalize(claude_credential()))
         service.add_model(self.store, "sol", "codex", "gpt-6.1-sol", "GPT-6.1 Sol")
@@ -43,7 +43,7 @@ class NativeSettingsTests(unittest.TestCase):
         self.assertEqual(value["permissions"]["defaultMode"], "default")
         self.assertEqual(value["env"]["PROJECT_FLAG"], "yes")
         self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", value["env"])
-        self.assertTrue((self.store.home / "backups/claude-settings-original.json").exists())
+        self.assertFalse((self.store.home / "integration.json").exists())
 
     def test_legacy_alias_migrates_to_genuine_gpt_id(self):
         accounts.select_accounts(self.store, "gpt")
@@ -63,12 +63,13 @@ class NativeSettingsTests(unittest.TestCase):
     def test_plain_claude_launch_has_no_injected_model_flag(self):
         accounts.select_accounts(self.store, "gpt")
         integration.apply(self.store, self.path)
-        with patch("claude_flex.service.shutil.which", return_value="/fake/claude"), patch("claude_flex.service.ensure_backend"), patch("claude_flex.service.sync_models"), patch("claude_flex.service.Gateway"), patch("claude_flex.service.subprocess.run") as run:
+        with patch("claude_flex.service.shutil.which", return_value="/fake/claude"), patch("claude_flex.service.activate_account"), patch("claude_flex.service.profiles.prepare", return_value=self.store), patch("claude_flex.service.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = "2.1.302 (Claude Code)"
             service.run_claude(self.store, args=("--version",))
         self.assertEqual(run.call_args.args[0], ["/fake/claude", "--version"])
         self.assertNotIn("ANTHROPIC_MODEL", run.call_args.kwargs["env"])
+        self.assertEqual(run.call_args.kwargs["env"]["CLAUDE_CONFIG_DIR"], str(self.path.parent))
 
     def test_unsupported_native_version_does_not_modify_connection_or_account(self):
         with patch("claude_flex.service.shutil.which", return_value="/fake/claude"), patch("claude_flex.service.subprocess.run") as run:
@@ -91,13 +92,13 @@ class NativeSettingsTests(unittest.TestCase):
         self.assertEqual(value["permissions"]["deny"], ["Bash(forbidden-command)"])
         self.assertTrue(value["skipDangerousModePermissionPrompt"])
         self.assertEqual(value["model"], "gpt-6-luna")
-        self.assertTrue(any((self.store.home / "backups").glob("permissions-*.json")))
+        self.assertFalse((self.store.home / "backups").exists())
 
     def test_full_access_launcher_overrides_old_session_mode_without_pinning_model(self):
         accounts.select_accounts(self.store, "gpt")
         self.store.mutate(lambda config: config.update(permission_mode="bypassPermissions"))
         integration.apply(self.store, self.path)
-        with patch("claude_flex.service.shutil.which", return_value="/fake/claude"), patch("claude_flex.service.ensure_backend"), patch("claude_flex.service.sync_models"), patch("claude_flex.service.Gateway"), patch("claude_flex.service.subprocess.run") as run:
+        with patch("claude_flex.service.shutil.which", return_value="/fake/claude"), patch("claude_flex.service.activate_account"), patch("claude_flex.service.profiles.prepare", return_value=self.store), patch("claude_flex.service.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = "2.1.302 (Claude Code)"
             service.run_claude(self.store, args=("--version",))
@@ -108,7 +109,7 @@ class NativeSettingsTests(unittest.TestCase):
         accounts.select_accounts(self.store, "gpt")
         self.store.mutate(lambda config: config.update(permission_mode="bypassPermissions"))
         integration.apply(self.store, self.path)
-        with patch("claude_flex.service.shutil.which", return_value="/fake/claude"), patch("claude_flex.service.ensure_backend"), patch("claude_flex.service.sync_models"), patch("claude_flex.service.Gateway"), patch("claude_flex.service.subprocess.run") as run:
+        with patch("claude_flex.service.shutil.which", return_value="/fake/claude"), patch("claude_flex.service.activate_account"), patch("claude_flex.service.profiles.prepare", return_value=self.store), patch("claude_flex.service.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = "2.1.302 (Claude Code)"
             service.run_claude(self.store, args=("--permission-mode", "plan", "--version"))
@@ -118,14 +119,27 @@ class NativeSettingsTests(unittest.TestCase):
         from claude_flex import desktop
 
         self.store.mutate(lambda config: config.update(permission_mode="bypassPermissions"))
-        path = Path(self.temp.name) / "desktop-home/.claude/settings.json"
+        root = self.store.home / "desktop"
+        path = root / "home/.claude/settings.json"
         write_json(path, {"model": "sonnet", "theme": "light"})
-        desktop.apply_permissions(self.store, path)
+        place = desktop.Layout(root, root / "home", root / "local", root / "roaming", root / "data", root / "data/configLibrary")
+        with patch("claude_flex.desktop.account_profile", return_value=self.store), patch("claude_flex.desktop.layout", return_value=place):
+            desktop.apply_permissions(self.store, path)
         value = read_json(path)
         self.assertEqual(value["permissions"]["defaultMode"], "bypassPermissions")
         self.assertTrue(value["skipDangerousModePermissionPrompt"])
         self.assertEqual(value["model"], "sonnet")
         self.assertNotIn("env", value)
+
+    def test_normal_user_settings_cannot_be_written(self):
+        normal = Path(self.temp.name) / "normal/.claude/settings.json"
+        write_json(normal, {"theme": "light", "model": "opus"})
+        with self.assertRaises(FlexError):
+            integration.apply(self.store, normal)
+        self.store.mutate(lambda config: config.update(permission_mode="bypassPermissions"))
+        with self.assertRaises(FlexError):
+            integration.apply_permissions(self.store, normal)
+        self.assertEqual(read_json(normal), {"theme": "light", "model": "opus"})
 
     def test_auto_and_ask_modes_can_replace_full_access(self):
         for mode in ("bypassPermissions", "auto", "manual"):

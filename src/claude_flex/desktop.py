@@ -1,4 +1,4 @@
-"""Official Claude Desktop local profiles, including Windows-from-WSL."""
+"""Open an installed Desktop binary with private, per-account process state."""
 
 from __future__ import annotations
 
@@ -6,11 +6,15 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
-from .compiler import desktop_profile
-from .store import FlexError, Store, file_lock, read_json, write_json
+from . import integration, profiles
+from .compiler import cli_settings, desktop_profile
+from .gateway import Gateway
+from .store import FlexError, Store, read_json, write_json
 
 
 def powershell(script: str) -> str:
@@ -20,7 +24,7 @@ def powershell(script: str) -> str:
     script = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding; $OutputEncoding = [Console]::OutputEncoding; " + script
     result = subprocess.run([command, "-NoProfile", "-Command", script], capture_output=True, text=True, encoding="utf-8", timeout=30, check=False)
     if result.returncode:
-        raise FlexError("Windows desktop integration failed. Check the local PowerShell execution policy.")
+        raise FlexError("Claude Desktop could not start.")
     return result.stdout.strip()
 
 
@@ -40,147 +44,157 @@ def linux_path(value: str) -> Path:
     return Path(result.stdout.strip())
 
 
-def library_path() -> Path:
-    if os.name == "nt":
-        return Path(os.environ["LOCALAPPDATA"]) / "Claude-3p/configLibrary"
-    if os.environ.get("WSL_DISTRO_NAME"):
-        local = powershell("[Environment]::GetFolderPath('LocalApplicationData')")
-        return linux_path(local) / "Claude-3p/configLibrary"
+def windows_host():
+    return os.name == "nt" or bool(os.environ.get("WSL_DISTRO_NAME"))
+
+
+def installed_executable() -> str | None:
+    if windows_host():
+        result = powershell("$p=Get-AppxPackage -Name Claude | Select-Object -First 1; if ($p) { $exe=Join-Path $p.InstallLocation 'app\\claude.exe'; if (Test-Path -LiteralPath $exe) { Write-Output $exe; exit } }; foreach ($exe in @((Join-Path $env:LOCALAPPDATA 'Programs\\Claude\\Claude.exe'),(Join-Path $env:LOCALAPPDATA 'AnthropicClaude\\claude.exe'))) { if (Test-Path -LiteralPath $exe) { Write-Output $exe; break } }")
+        return result or None
     if sys.platform == "darwin":
-        return Path.home() / "Library/Application Support/Claude-3p/configLibrary"
-    return Path.home() / ".config/Claude-3p/configLibrary"
+        for base in (Path("/Applications"), Path.home() / "Applications"):
+            binary = base / "Claude.app/Contents/MacOS/Claude"
+            if binary.is_file():
+                return str(binary)
+        return None
+    return shutil.which("claude-desktop")
+
+
+def available() -> bool:
+    try:
+        return bool(installed_executable())
+    except (FlexError, OSError):
+        return False
+
+
+def account_profile(store: Store):
+    if isinstance(store, profiles.AccountProfile):
+        return store
+    label = store.load().get("selected_account")
+    if not label:
+        raise FlexError("Choose an account first.")
+    return profiles.prepare(store, label)
+
+
+@dataclass
+class Layout:
+    root: Path
+    home: Path
+    local: Path
+    roaming: Path
+    data: Path
+    library: Path
+
+
+def layout(profile: Store) -> Layout:
+    if windows_host():
+        native = os.environ.get("LOCALAPPDATA") if os.name == "nt" else powershell("[Environment]::GetFolderPath('LocalApplicationData')")
+        root = Path(native) if os.name == "nt" else linux_path(native)
+        root = root / "Claude-Flex/isolated" / profile.home.name
+        local, roaming, home = root / "Local", root / "Roaming", root / "Home"
+        data = local / "Claude-3p"
+    else:
+        root = profile.home / "desktop"
+        home, local, roaming = root / "home", root / "local", root / "config"
+        data = home / "Library/Application Support/Claude-3p" if sys.platform == "darwin" else roaming / "Claude-3p"
+    return Layout(root, home, local, roaming, data, data / "configLibrary")
+
+
+def native_path(path):
+    return windows_path(path) if windows_host() else str(path)
 
 
 def apply_permissions(store: Store, path: Path | None = None):
-    if store.load().get("permission_mode") is None:
-        return None
-    from . import integration
-
-    if path is None:
-        home = Path.home()
-        if os.environ.get("WSL_DISTRO_NAME"):
-            home = linux_path(powershell("[Environment]::GetFolderPath('UserProfile')"))
-        path = home / ".claude/settings.json"
-    return integration.apply_permissions(store, path)
+    profile = account_profile(store)
+    place = layout(profile)
+    path = (path or place.home / ".claude/settings.json").resolve()
+    if not path.is_relative_to(place.root.resolve()):
+        raise FlexError("Desktop settings must stay inside its private profile.")
+    previous = read_json(path, {})
+    updated = integration.permission_settings(previous, profile.load().get("permission_mode"))
+    if previous != updated:
+        write_json(path, updated)
+    return path
 
 
 def apply(store: Store, library: Path | None = None, *, activate=False) -> Path:
-    apply_permissions(store)
-    library = library or library_path()
-    library.mkdir(parents=True, exist_ok=True)
-    with file_lock(library / ".claude-flex.lock"):
-        meta_path = library / "_meta.json"
-        meta = read_json(meta_path, {"appliedId": None, "entries": []})
-        entry = next((item for item in meta["entries"] if item.get("name") == "Claude Flex"), None)
-        if entry is None:
-            entry = {"id": str(uuid.uuid4()), "name": "Claude Flex"}
-            meta["entries"].append(entry)
-        # Library IDs become filenames. Refuse corrupt metadata before writing.
-        try:
-            uuid.UUID(entry["id"])
-        except (ValueError, TypeError):
-            raise FlexError("Invalid Desktop profile ID in configLibrary metadata.") from None
-        path = library / (entry["id"] + ".json")
-        write_json(path, desktop_profile(store))
-        if activate:
-            meta["appliedId"] = entry["id"]
-        write_json(meta_path, meta)
+    profile = account_profile(store)
+    place = layout(profile)
+    library = (library or place.library).resolve()
+    if not library.is_relative_to(place.root.resolve()):
+        raise FlexError("Desktop connection must stay inside its private profile.")
+    identifier = str(uuid.uuid5(uuid.NAMESPACE_URL, str(profile.home)))
+    path = library / (identifier + ".json")
+    write_json(path, desktop_profile(profile))
+    write_json(library / "_meta.json", {"appliedId": identifier, "entries": [{"id": identifier, "name": "Claude Flex"}]})
+    native_settings = integration.permission_settings(cli_settings(profile), profile.load().get("permission_mode"))
+    write_json(place.home / ".claude/settings.json", native_settings)
+    write_json(place.home / ".claude/.claude.json", {"hasCompletedOnboarding": True, "theme": "dark"})
     return path
 
 
 def launch(store: Store):
-    from .gateway import Gateway
-
-    gateway = Gateway(store)
-    gateway.start()
-    if os.name == "nt" or os.environ.get("WSL_DISTRO_NAME"):
-        app_id = powershell("(Get-StartApps | Where-Object { $_.Name -eq 'Claude' } | Select-Object -First 1).AppID")
-        if not app_id:
-            raise FlexError("Claude Desktop is not installed.")
-        powershell("Start-Process explorer.exe -ArgumentList " + ps_quote("shell:AppsFolder\\" + app_id))
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", "-a", "Claude"])
+    binary = installed_executable()
+    if not binary:
+        raise FlexError("Claude Desktop is not installed.")
+    profile = account_profile(store)
+    place = layout(profile)
+    for path in (place.home, place.local, place.roaming, place.data):
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    Gateway(profile).start()
+    env = profiles.environment(profile)
+    overrides = {
+        "HOME": native_path(place.home), "USERPROFILE": native_path(place.home),
+        "LOCALAPPDATA": native_path(place.local), "APPDATA": native_path(place.roaming),
+        "XDG_CONFIG_HOME": native_path(place.roaming),
+        "CLAUDE_CONFIG_DIR": native_path(place.home / ".claude"),
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR": native_path(place.home / ".claude"),
+    }
+    if windows_host():
+        # Preserve Windows' actual OS identity/profile for packaged activation.
+        # App state and the embedded Claude engine have explicit private roots.
+        overrides.pop("USERPROFILE")
+        overrides.pop("HOME")
+    env.update(overrides)
+    args = ["--user-data-dir=" + native_path(place.data)]
+    if windows_host():
+        marker = place.root / ("launch-" + uuid.uuid4().hex + ".json")
+        script = "$ErrorActionPreference='Stop'; try { $p=New-Object System.Diagnostics.ProcessStartInfo; $p.UseShellExecute=$false; "
+        script += "$p.FileName=" + ps_quote(binary) + "; $p.Arguments=" + ps_quote(subprocess.list2cmdline(args)) + "; "
+        script += "$p.WorkingDirectory=" + ps_quote(native_path(place.root)) + "; "
+        for key, value in overrides.items():
+            script += "$p.EnvironmentVariables[" + ps_quote(key) + "]=" + ps_quote(value) + "; "
+        for key in integration.LEGACY_ENV | {"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_USER_DATA_DIR", "CLAUDE_CDP_AUTH"}:
+            script += "$p.EnvironmentVariables.Remove(" + ps_quote(key) + "); "
+        script += "$child=[System.Diagnostics.Process]::Start($p); @{pid=$child.Id} | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 -LiteralPath " + ps_quote(native_path(marker)) + " } catch { @{error='Desktop could not start'} | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 -LiteralPath " + ps_quote(native_path(marker)) + "; exit 1 }"
+        script_path = place.root / "launch.ps1"
+        script_path.write_text(script, encoding="utf-8-sig")
+        flags = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS}
+        helper = subprocess.Popen([shutil.which("powershell.exe"), "-NoProfile", "-File", native_path(script_path)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **flags)
+        for _ in range(100):
+            if marker.exists():
+                result = read_json(marker)
+                marker.unlink()
+                if type(result.get("pid")) is int:
+                    pid = result["pid"]
+                    break
+                raise FlexError("Claude Desktop could not start.")
+            if helper.poll() not in (None, 0):
+                raise FlexError("Claude Desktop could not start.")
+            time.sleep(0.1)
+        else:
+            raise FlexError("Desktop launch timed out.")
     else:
-        command = shutil.which("claude-desktop")
-        if not command:
-            raise FlexError("Claude Desktop is not installed. Install it, then open the Claude Flex profile.")
-        subprocess.Popen([command], start_new_session=True)
-
-
-def running_instance() -> str | None:
-    if os.name == "nt" or os.environ.get("WSL_DISTRO_NAME"):
-        value = powershell("Get-Process -Name Claude -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1 | ForEach-Object { '{0}:{1}' -f $_.Id, $_.StartTime.Ticks }")
-        return value or None
-    command = shutil.which("pgrep")
-    if not command:
-        return None
-    name = "Claude" if sys.platform == "darwin" else "claude-desktop"
-    process = subprocess.run([command, "-o", "-x", name], capture_output=True, text=True, check=False)
-    return process.stdout.strip() or None
+        if sys.platform == "darwin":
+            env["CFFIXED_USER_HOME"] = str(place.home)
+        process = subprocess.Popen([binary, *args], env=env, cwd=place.root, start_new_session=True)
+        pid = process.pid
+    write_json(profile.runtime / "desktop-process.json", {"pid": pid, "data": str(place.data)})
+    return pid
 
 
 def open_profile(store: Store, library: Path | None = None) -> bool:
-    """Apply the selected account's profile, open Desktop, report an actual stale app."""
-    library = library or library_path()
-    meta = read_json(library / "_meta.json", {"entries": []})
-    entry = next((item for item in meta["entries"] if item.get("name") == "Claude Flex"), None)
-    previous = {}
-    if entry:
-        try:
-            uuid.UUID(entry["id"])
-        except (KeyError, ValueError, TypeError):
-            raise FlexError("Invalid Desktop profile ID.") from None
-        previous = read_json(library / (entry["id"] + ".json"), {})
-    changed = previous != desktop_profile(store) or not entry or meta.get("appliedId") != entry["id"]
-    marker = store.runtime / "desktop-restart.json"
-    pending = read_json(marker, {})
-    instance = running_instance()
-    restart_required = bool(instance and (changed or pending.get("instance") == instance))
     apply(store, library, activate=True)
-    if restart_required:
-        write_json(marker, {"instance": instance})
-    else:
-        marker.unlink(missing_ok=True)
     launch(store)
-    return restart_required
-
-
-def shortcut(store: Store) -> str:
-    if os.name != "nt" and not os.environ.get("WSL_DISTRO_NAME"):
-        raise FlexError("Automatic shortcuts currently support Windows and WSL. Use 'desktop launch' on macOS/Linux.")
-    local = powershell("[Environment]::GetFolderPath('LocalApplicationData')")
-    root = Path(local) / "Claude-Flex" if os.name == "nt" else linux_path(local) / "Claude-Flex"
-    root.mkdir(parents=True, exist_ok=True)
-    executable = shutil.which("claude-flex")
-    if not executable:
-        raise FlexError("Install the CLI first: uv tool install .")
-    command = "desktop launch"
-    if os.environ.get("WSL_DISTRO_NAME"):
-        invoke = "& wsl.exe --distribution " + ps_quote(os.environ["WSL_DISTRO_NAME"])
-        invoke += " --exec env " + ps_quote("CLAUDE_FLEX_HOME=" + str(store.home))
-        invoke += " " + ps_quote(executable) + " " + command
-    else:
-        invoke = "$env:CLAUDE_FLEX_HOME=" + ps_quote(str(store.home)) + "; & " + ps_quote(executable) + " " + command
-    script = root / "Start-Claude-Flex.ps1"
-    content = (
-        "$ErrorActionPreference='Stop'\ntry {\n" + invoke
-        + "\nif ($LASTEXITCODE -ne 0) { throw 'Claude Flex gateway could not start. Run claude-flex doctor.' }\n"
-        + "} catch { Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show($_.Exception.Message, 'Claude Flex') | Out-Null; exit 1 }\n"
-    )
-    script.write_text(content, encoding="utf-8")
-    win_script = windows_path(script)
-    # COM is needed to create a real Windows .lnk rather than a terminal wrapper.
-    ps = """
-$desktop=[Environment]::GetFolderPath('Desktop')
-$target=Join-Path $desktop SHORTCUT_NAME
-$shell=New-Object -ComObject WScript.Shell
-$link=$shell.CreateShortcut($target)
-$link.TargetPath=Join-Path $env:WINDIR 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'
-$link.Arguments='-NoProfile -WindowStyle Hidden -File "' + SCRIPT_PATH + '"'
-$link.Description='Claude Code Desktop with your own model and account pool'
-$package=Get-AppxPackage -Name Claude | Select-Object -First 1
-if ($package) { $icon=Join-Path $package.InstallLocation 'app\\Claude.exe'; if (Test-Path -LiteralPath $icon) { $link.IconLocation=$icon+',0' } }
-$link.Save()
-Write-Output $target
-""".replace("SCRIPT_PATH", ps_quote(win_script)).replace("SHORTCUT_NAME", ps_quote("Claude Flex.lnk"))
-    return powershell(ps)
+    return False

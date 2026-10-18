@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from claude_flex import accounts, service
-from claude_flex.compiler import choose, compile_gateway, model_alias
+from claude_flex.compiler import choose, compile_gateway, desktop_alias, model_alias
 from claude_flex.store import FlexError, Store, read_json
 from claude_flex.usage import fetch_usage, normalize_claude_usage
 from tests.helpers import mock_catalog, token
@@ -37,7 +37,7 @@ class ClaudeTests(unittest.TestCase):
         accounts.import_account(self.store, "gpt", accounts.normalize({"access": token()}))
         accounts.select_accounts(self.store, "claude-two")
         config = self.store.load()
-        self.assertFalse(config["accounts"]["claude-one"]["enabled"])
+        self.assertTrue(config["accounts"]["claude-one"]["enabled"])
         self.assertTrue(config["accounts"]["claude-two"]["enabled"])
         self.assertTrue(config["accounts"]["gpt"]["enabled"])
 
@@ -100,7 +100,7 @@ class ClaudeTests(unittest.TestCase):
         self.assertEqual(config["models"]["plus"]["label"], "GPT-6.1 Sol")
         self.assertEqual(choose(config, "gpt")[0], "plus")
         aliases = compile_gateway(self.store)["oauth"]["model-alias"]["codex"]
-        self.assertEqual({item["alias"] for item in aliases}, {model_alias("plus"), model_alias("gpt"), "claude-gpt-6.1-sol"})
+        self.assertEqual({item["alias"] for item in aliases}, {model_alias("plus"), desktop_alias("plus"), model_alias("gpt"), "claude-gpt-6.1-sol"})
         service.merge_duplicate_models(self.store)
         self.assertEqual(config, self.store.load())
 

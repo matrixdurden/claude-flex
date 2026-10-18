@@ -117,6 +117,14 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
         desktop.assert_called_once_with(self.store)
         launch.assert_not_called()
 
+    async def test_desktop_shortcut_is_hidden_when_not_installed(self):
+        app = BaseFlexApp(self.store, usage=FakeUsage(), activate=fake_activate, catalog_sync=lambda *args, **kwargs: {"added": [], "errors": {}})
+        with patch("claude_flex.tui.desktop.available", return_value=False):
+            async with app.run_test() as pilot:
+                await pilot.pause(0.3)
+                self.assertFalse(app.desktop_available)
+                self.assertNotIn("d desktop", app.export_screenshot().replace("&#160;", " "))
+
     async def test_desktop_restart_hint_is_short_and_only_shown_when_needed(self):
         app = FlexApp(self.store, usage=FakeUsage(), desktop_launch=Mock(return_value=True))
         async with app.run_test() as pilot:
@@ -143,7 +151,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("down", "enter")
             await pilot.pause(0.3)
             self.assertEqual(self.store.load()["selected_account"], "work")
-            self.assertFalse(self.store.load()["accounts"]["main"]["enabled"])
+            self.assertTrue(self.store.load()["accounts"]["main"]["enabled"])
 
     async def test_account_add_flow_requires_no_account_name_form(self):
         app = FlexApp(self.store, usage=FakeUsage())

@@ -13,11 +13,10 @@ claude-flex
 
 Flex'te yalnızca hesap seçimi, değişimi ve limitler bulunur. Ayrı bir model
 listesi veya model seçme ekranı yoktur. GPT modelleri Claude Code'da kendi
-adlarıyla görünür; Sonnet gibi gösterilmez. Aynı sağlayıcıdaki hesaplar arasında
-geçiş yaparken Claude Code'da seçtiğin model korunur.
+adlarıyla görünür. Her hesabın model tercihi ve geçmişi ayrı profilde tutulur.
 
-Claude Code'dan çıkınca Flex'e dönersin. Seçilen hesap normal `claude` komutunda
-da kullanılabilir.
+Claude Code'dan çıkınca Flex'e dönersin. Flex kendi yapılandırma klasörünü kullanır;
+normal `claude` komutu mevcut normal kurulumunu açmaya devam eder.
 Claude Code 2.1.242+ ve Python 3.11+ gerekir; Desktop zorunlu değildir.
 
 ## Tuşlar
@@ -39,13 +38,14 @@ Claude hesaplarında sağlayıcının kullanım pencereleri gösterilir. Bilinme
 değer **—**, eski veri **\*** ile işaretlenir. 429 kullanım limiti hatasında
 kullanılabilir başka bir hesabı seçebilir veya yenilenme zamanını bekleyebilirsin.
 
-Hesap seçimi, normal Claude Code'un kullanıcı ayarlarına gateway bağlantısını
-ve gerçek model adlarını içeren `/model` listesini yazar. Önceki ayarların
-yedeği Flex'in özel kullanıcı klasöründe tutulur; izinler ve ilgisiz tercihler
-korunur. Kimlik bilgileri repo dışında kalır.
+Her hesabın ayrı bağlantı portu, Claude yapılandırması ve oturum klasörü vardır.
+Başka hesap açmak çalışan hesabın bağlantısını kapatmaz veya hesabını değiştirmez.
+Normal `~/.claude` ayarlarına ve Desktop'ın ortak profil listesine yazılmaz.
+Kimlik bilgileri repo dışında, Flex'in özel klasöründe kalır. Bu bir sanal makine
+değil; ayrı uygulama profilleridir ve seçtiğin proje klasörü üzerinde çalışır.
 
-Desktop profili açılıştan önce otomatik hazırlanır. Uygulama eski profille zaten
-açıksa yalnızca **Restart Desktop.** mesajı görünür; tamamen kapatıp açman yeterli.
+Desktop bilgisayarda algılanırsa **d** seçeneği görünür. Kurulu uygulama ayrı
+Flex veri diziniyle açılır; normal Desktop oturumun kapatılmaz. Kısayol oluşturulmaz.
 
 ## İzinler
 
@@ -53,6 +53,6 @@ açıksa yalnızca **Restart Desktop.** mesajı görünür; tamamen kapatıp aç
 Full access, `bypassPermissions` modudur; işlem onaylarını sormadan çalışır.
 Auto bazı işlemler için yine onay isteyebilir. Bu tercih kullanıcıya özeldir;
 yeni kurulumlara zorunlu tam erişim uygulanmaz. Değişiklikten sonra yeni oturum
-aç. Mevcut izin kuralları korunur ve model seçimi değişmez.
+aç. Tercih yalnızca Flex profillerine uygulanır; normal Claude izinleri değişmez.
 
 [English README](../README.md) · [Mimari](architecture.md)

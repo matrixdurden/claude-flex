@@ -4,9 +4,9 @@
 
 **Choose your account. Pick your model in Claude Code.**
 
-A minimal terminal account switcher for Claude Code. Manage Claude and ChatGPT
-sign-ins, see remaining limits, and keep model selection in Claude Code's own
-`/model` menu.
+A minimal, isolated account launcher for Claude Code. Manage Claude and ChatGPT
+sign-ins, see limits, and select models in Claude Code's own `/model` menu.
+Your normal Claude installation, settings and active sessions stay separate.
 
 [![Tests](https://github.com/matrixdurden/claude-flex/actions/workflows/test.yml/badge.svg)](https://github.com/matrixdurden/claude-flex/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-a8d5bc)](LICENSE)
@@ -31,11 +31,12 @@ claude-flex
 3. Choose the model in Claude Code's own **`/model`** menu or Desktop picker.
 
 That's the separation: **Flex selects accounts; Claude Code selects models.**
-No model list or model picker appears in Flex. Your native
-model choice is preserved when switching accounts of the same provider.
+No model list or model picker appears in Flex. Each account remembers its own
+native model choice.
 
-Exit Claude Code to return to Flex. The account connection also stays available
-to your normal `claude` command. Claude Desktop is optional.
+Exit Claude Code to return to Flex. The installed Claude executable is reused
+with a private `CLAUDE_CONFIG_DIR`; running `claude` normally still opens your
+normal setup. Claude Desktop is optional and appears only when detected.
 Linux, macOS, Windows and WSL are supported.
 
 ## Accounts
@@ -47,9 +48,11 @@ Linux, macOS, Windows and WSL are supported.
 - Automatic account names and duplicate-identity detection.
 - Account renewal, enable/pause, removal, weights and provider-specific pools.
 
-Enter and **d** select the highlighted account, prepare the connection and open
-the chosen application. Other providers' accounts aren't disabled. Changes
-may briefly restart the gateway; finish an active generation before switching.
+Enter and **d** open the highlighted account in a private profile. Each account
+has a separate gateway, port, model preferences and conversation storage.
+Opening another account does not disable the first account or restart its
+gateway. This is profile isolation, not a VM: both sessions still work on the
+project folder you choose.
 
 ## Models belong in `/model`
 
@@ -95,12 +98,13 @@ Reset times and detailed provider/model windows are under **s → Account detail
 | `r` | Refresh limits and the native model catalog |
 | `s` | Details, renewal and advanced settings |
 | `Esc` | Back/cancel sign-in |
-| `q` | Exit Flex; the selected connection remains available |
+| `q` | Exit Flex; its existing sessions remain available |
 
-Desktop's connection profile is applied automatically before opening. If an
-already-running Desktop app has an older profile, Flex shows only **Restart
-Desktop.** until the app has been fully reopened. The native model picker stays
-in charge in both terminal and Desktop.
+When Desktop is installed, **d** opens that binary with a private app-data,
+connection-profile and Claude configuration root. It does not change the
+normal app's selected connection profile, sign out the normal app, terminate
+its processes, or create desktop shortcuts. Desktop-compatible routing aliases
+are internal; display labels keep the real provider model names.
 
 ## Permissions
 
@@ -111,19 +115,23 @@ Choose **s → Permissions**:
 - **Ask** — normal manual approvals.
 
 This is a per-user preference, not a forced default for new installations.
-Flex passes the selected mode when opening terminal sessions and updates native
-Claude Code/Desktop user defaults. Existing permission rules are retained.
+Flex passes the selected mode when opening its terminal sessions and stores it
+only in its private terminal/Desktop settings. Normal Claude permissions are
+not changed.
 Start a new session after changing the mode; already-running sessions keep
 their current mode. An explicit native `--permission-mode` choice takes precedence
 over the stored Flex preference.
 
 ## Connection and storage
 
-Selecting an account updates the native `~/.claude/settings.json` (or
-`CLAUDE_CONFIG_DIR/settings.json`) with the gateway connection and the `/model`
-lineup. An original-settings backup is stored privately in the Flex state folder.
-Unrelated preferences and permissions are preserved. Gateway and upstream
-credentials are never checked into this repository.
+Selecting an account writes only under the Flex state directory. It does not
+edit `~/.claude/settings.json`, `~/.claude.json`, or the standard Desktop profile
+library. Logins, projects, skills and active sessions from your normal Claude
+are not copied into Flex. Gateway credentials are never checked into Git.
+
+On upgrade from older shared-settings versions, a one-time migration restores
+only settings attributable to Flex from its saved backups. New preferences
+and unrelated settings are preserved; an additional recovery snapshot is kept.
 
 | Platform | Private state directory |
 | --- | --- |
@@ -132,7 +140,8 @@ credentials are never checked into this repository.
 | Windows | `%LOCALAPPDATA%\Claude-Flex` |
 
 Override Flex state with `CLAUDE_FLEX_HOME` or `claude-flex --home PATH`.
-The verified gateway is prepared automatically and listens on loopback port 8318.
+The verified gateway is prepared automatically and gets a private loopback port
+per account. Credentials have one authoritative refresh owner per account.
 There is no web management server or telemetry in Flex.
 
 Optional automation: `claude-flex run --account work -- -p "Hello"`,

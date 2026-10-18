@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, desktop, service
+from . import __version__, desktop, profiles, service
 from .compiler import choose, cli_model_id
 from .gateway import Gateway, find_binary
 from .providers import request_json
@@ -28,7 +28,7 @@ def parser():
     check.add_argument("--profile")
     check.add_argument("--tools", action="store_true")
     app = commands.add_parser("desktop", help="Optional official Claude Desktop integration.")
-    app.add_argument("action", choices=("apply", "launch", "shortcut"))
+    app.add_argument("action", choices=("apply", "launch"))
     app.add_argument("--activate", action="store_true")
     gateway = commands.add_parser("gateway", help="Stop or check the local model gateway.")
     gateway.add_argument("action", choices=("stop", "status"))
@@ -36,6 +36,11 @@ def parser():
 
 
 def check_model(store, args):
+    account = store.load().get("selected_account")
+    if account:
+        service.ensure_backend(store)
+        service.sync_models(store)
+        store = profiles.prepare(store, account)
     label, model = choose(store.load(), args.profile)
     gateway = Gateway(store)
     service.ensure_backend(store)
@@ -71,6 +76,9 @@ def main(argv=None):
     store = Store(args.home.expanduser() if args.home else None)
     try:
         store.init()
+        from .migration import restore_legacy_settings
+
+        restore_legacy_settings(store)
         result = 0
         if args.command is None:
             if not sys.stdin.isatty() or not sys.stdout.isatty():
@@ -84,11 +92,18 @@ def main(argv=None):
         elif args.command == "check":
             check_model(store, args)
         elif args.command == "gateway":
+            gateways = [Gateway(store)]
+            for label, meta in store.load()["accounts"].items():
+                if meta.get("credential_path"):
+                    home = store.home / "instances" / meta["identity"]
+                    if (home / "config.json").exists():
+                        gateways.append(Gateway(profiles.AccountProfile(home, store.account_path(label))))
             if args.action == "stop":
-                Gateway(store).stop()
+                for gateway in gateways:
+                    gateway.stop()
                 print("Gateway stopped.")
             else:
-                print("Running" if Gateway(store).owned_pid() else "Stopped")
+                print("Running" if any(gateway.owned_pid() for gateway in gateways) else "Stopped")
         elif args.command == "desktop":
             if args.action == "apply":
                 print(desktop.apply(store, activate=args.activate))
@@ -99,15 +114,13 @@ def main(argv=None):
                 service.activate_account(store, account)
                 if desktop.open_profile(store):
                     print("Restart Desktop.")
-            else:
-                print(desktop.shortcut(store))
         elif args.command == "doctor":
             try:
                 binary = str(find_binary(store))
             except FlexError:
                 binary = "not installed; prepared automatically when needed"
             config = store.load()
-            print(json.dumps({"version": __version__, "state": str(store.home), "backend": binary, "gateway": store.url(), "accounts": len(config["accounts"]), "models": len(config["models"])}, indent=2))
+            print(json.dumps({"version": __version__, "state": str(store.home), "backend": binary, "isolation": "per-account", "profiles": str(store.home / "instances"), "accounts": len(config["accounts"]), "models": len(config["models"])}, indent=2))
     except FlexError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from None

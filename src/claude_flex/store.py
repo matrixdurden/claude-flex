@@ -209,4 +209,10 @@ class Store:
 
     def account_path(self, label: str) -> Path:
         name(label)
+        metadata = read_json(self.config_path, {}).get("accounts", {}).get(label, {})
+        if metadata.get("credential_path"):
+            path = Path(metadata["credential_path"]).resolve()
+            if not path.is_relative_to(self.home / "credentials"):
+                raise FlexError("Invalid account credential path.")
+            return path
         return self.auth / f"{label}.json"

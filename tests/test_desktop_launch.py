@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from claude_flex import desktop, service
 from claude_flex.compiler import desktop_profile
-from claude_flex.store import Store, read_json, write_json
+from claude_flex.store import FlexError, Store, read_json, write_json
 
 
 class DesktopLaunchTests(unittest.TestCase):
@@ -14,44 +14,49 @@ class DesktopLaunchTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.store = Store(Path(self.temp.name) / "state")
         self.store.init()
-        self.library = Path(self.temp.name) / "library"
+        root = self.store.home / "desktop"
+        self.place = desktop.Layout(root, root / "Home", root / "Local", root / "Roaming", root / "Data", root / "Data/configLibrary")
+        for target, value in (("claude_flex.desktop.account_profile", self.store), ("claude_flex.desktop.layout", self.place)):
+            mocked = patch(target, return_value=value)
+            mocked.start()
+            self.addCleanup(mocked.stop)
         service.add_model(self.store, "gpt", "codex", "gpt-6.1-sol", "GPT-6.1 Sol")
 
-    def test_first_launch_applies_and_activates_profile_before_opening(self):
-        with patch("claude_flex.desktop.running_instance", return_value=None), patch("claude_flex.desktop.launch") as launch:
+    def test_private_profile_is_applied_before_opening(self):
+        with patch("claude_flex.desktop.launch") as launch:
             def verify(store):
-                meta = read_json(self.library / "_meta.json")
-                profile = read_json(self.library / (meta["appliedId"] + ".json"))
+                meta = read_json(self.place.library / "_meta.json")
+                profile = read_json(self.place.library / (meta["appliedId"] + ".json"))
                 self.assertEqual(profile, desktop_profile(store))
             launch.side_effect = verify
-            restart = desktop.open_profile(self.store, self.library)
-        self.assertFalse(restart)
+            self.assertFalse(desktop.open_profile(self.store))
         launch.assert_called_once_with(self.store)
 
-    def test_unchanged_running_app_is_focused_without_restart_hint(self):
-        desktop.apply(self.store, self.library, activate=True)
-        with patch("claude_flex.desktop.running_instance", return_value="same-process"), patch("claude_flex.desktop.launch") as launch:
-            self.assertFalse(desktop.open_profile(self.store, self.library))
-        launch.assert_called_once()
+    def test_normal_desktop_library_is_never_written(self):
+        normal = Path(self.temp.name) / "normal/configLibrary"
+        write_json(normal / "_meta.json", {"appliedId": "original", "entries": []})
+        with self.assertRaises(FlexError):
+            desktop.apply(self.store, normal, activate=True)
+        self.assertEqual(read_json(normal / "_meta.json")["appliedId"], "original")
 
-    def test_stale_profile_remains_pending_until_app_actually_restarts(self):
-        path = desktop.apply(self.store, self.library, activate=True)
-        write_json(path, {"inferenceProvider": "gateway", "inferenceGatewayBaseUrl": "http://127.0.0.1:1"})
-        with patch("claude_flex.desktop.running_instance", return_value="old-process"), patch("claude_flex.desktop.launch"):
-            self.assertTrue(desktop.open_profile(self.store, self.library))
-            self.assertTrue(desktop.open_profile(self.store, self.library))
-        with patch("claude_flex.desktop.running_instance", return_value="new-process"), patch("claude_flex.desktop.launch"):
-            self.assertFalse(desktop.open_profile(self.store, self.library))
-        self.assertFalse((self.store.runtime / "desktop-restart.json").exists())
+    def test_private_native_settings_do_not_use_global_claude_home(self):
+        desktop.apply(self.store)
+        settings = read_json(self.place.home / ".claude/settings.json")
+        self.assertIn("modelPicker", settings)
+        self.assertEqual(settings["env"]["ANTHROPIC_BASE_URL"], self.store.url())
+        self.assertFalse((Path(self.temp.name) / ".claude").exists())
 
-    def test_other_desktop_profiles_are_preserved(self):
-        original = {"id": "00000000-0000-0000-0000-000000000001", "name": "Other"}
-        write_json(self.library / "_meta.json", {"appliedId": original["id"], "entries": [original]})
-        with patch("claude_flex.desktop.running_instance", return_value=None), patch("claude_flex.desktop.launch"):
-            desktop.open_profile(self.store, self.library)
-        meta = read_json(self.library / "_meta.json")
-        self.assertIn(original, meta["entries"])
-        self.assertNotEqual(meta["appliedId"], original["id"])
+    def test_missing_desktop_does_not_open_or_reconfigure_normal_application(self):
+        with patch("claude_flex.desktop.installed_executable", return_value=None), patch("claude_flex.desktop.Gateway") as gateway:
+            with self.assertRaises(FlexError):
+                desktop.launch(self.store)
+        gateway.assert_not_called()
+
+    def test_desktop_route_ids_are_compatible_but_labels_stay_honest(self):
+        service.add_model(self.store, "gpt-next", "codex", "gpt-6-luna", "GPT-6 Luna")
+        models = desktop_profile(self.store)["inferenceModels"]
+        self.assertEqual([model["labelOverride"] for model in models], ["GPT-6.1 Sol", "GPT-6 Luna"])
+        self.assertTrue(all("gpt" not in model["name"] for model in models))
 
 
 if __name__ == "__main__":

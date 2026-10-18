@@ -4,7 +4,9 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup, checks and contribution not
 
 - `tui.py` / `tui.tcss`: account-only terminal interface and sign-in workflows.
 - `service.py`: account activation, background catalogs and native Claude launch.
-- `integration.py`: native Claude Code settings, picker lineup and backups.
+- `integration.py`: private native Claude settings and picker lineup.
+- `profiles.py`: per-account gateway and credential-owner isolation.
+- `migration.py`: one-time restoration of older shared-setting integrations.
 - `accounts.py` / `login.py`: named OAuth accounts and browser login jobs.
 - `usage.py`: read-only Claude/Codex quota parsing and cache.
 - `compiler.py`: provider-neutral configuration → CLIProxyAPI and Claude settings.

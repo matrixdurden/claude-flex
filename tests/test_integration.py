@@ -13,12 +13,12 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from claude_flex.cli import add_model, check_model
+from claude_flex.cli import add_model, check_model, main
 from claude_flex.compiler import model_alias, render
 from claude_flex.gateway import Gateway
 from claude_flex.providers import add_key, add_provider, request_json
 from claude_flex.store import Store
-from tests.helpers import free_port
+from tests.helpers import free_port, token
 
 BACKEND = os.environ.get("CLAUDE_FLEX_TEST_BACKEND")
 
@@ -143,6 +143,39 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.gateway.start(), pid)
         self.gateway.stop()
         self.assertIsNone(self.gateway.owned_pid())
+
+    def test_private_account_gateways_continue_running_when_another_account_is_selected(self):
+        from claude_flex import accounts, profiles
+
+        self.gateway.stop()
+        for label in ("one", "two"):
+            accounts.import_account(self.store, label, accounts.normalize({"access": token(label)}))
+        one = profiles.prepare(self.store, "one")
+        first = Gateway(one)
+        first_pid = first.start()
+        self.addCleanup(first.stop)
+        accounts.select_accounts(self.store, "two")
+        two = profiles.prepare(self.store, "two")
+        second = Gateway(two)
+        second_pid = second.start()
+        self.addCleanup(second.stop)
+        self.assertEqual(first.owned_pid(), first_pid)
+        self.assertNotEqual(one.url(), two.url())
+        for store in (one, two):
+            response = request_json(store.url() + "/v1/messages", headers={"Authorization": "Bearer " + store.secrets()["gateway_key"], "anthropic-version": "2023-06-01"}, body={"model": model_alias("one"), "max_tokens": 128, "messages": [{"role": "user", "content": "private-route-check"}]})
+            self.assertIn("FLEX_OK:upstream-a", str(response["content"]))
+        accounts.import_account(self.store, "one", accounts.normalize({"access": token("one", expiry=9999999999)}), replace=True)
+        self.assertIsNotNone(first.owned_pid())
+        self.assertEqual(second.owned_pid(), second_pid)
+        accounts.remove_account(self.store, "one")
+        self.assertIsNone(first.owned_pid())
+        self.assertEqual(second.owned_pid(), second_pid)
+        self.assertNotIn("one", self.store.load()["accounts"])
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exited:
+            main(["--home", str(self.store.home), "gateway", "status"])
+        self.assertEqual(exited.exception.code, 0)
+        self.assertEqual(output.getvalue().strip(), "Running")
 
 
 if __name__ == "__main__":

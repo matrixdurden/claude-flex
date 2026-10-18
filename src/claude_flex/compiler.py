@@ -14,6 +14,12 @@ def model_alias(label: str) -> str:
     return f"claude-sonnet-4-6-flex-{label}-{digest}"
 
 
+def desktop_alias(label: str) -> str:
+    # Desktop rejects routes containing names such as gpt/openai even when
+    # prefixed with claude-. Keep routing opaque; display labels remain real.
+    return "claude-sonnet-4-6-flex-" + hashlib.sha256(label.encode()).hexdigest()[:16]
+
+
 def cli_model_id(config: dict, label: str) -> str:
     model = config["models"][label]
     kind = config["providers"][model["provider"]]["kind"]
@@ -57,7 +63,7 @@ def compile_gateway(store: Store, *, auth_dir=None) -> dict:
         provider = config["providers"][model["provider"]]
         if not provider.get("enabled", True):
             continue
-        aliases = [model_alias(label)] + [model_alias(source) for source, target in config.get("model_redirects", {}).items() if target == label]
+        aliases = [model_alias(label), desktop_alias(label)] + [model_alias(source) for source, target in config.get("model_redirects", {}).items() if target == label]
         if provider["kind"] in {"codex", "claude-oauth"}:
             channel = "claude" if provider["kind"] == "claude-oauth" else "codex"
             if provider["kind"] == "codex":
@@ -133,7 +139,8 @@ def cli_settings(store: Store) -> dict:
 
 def desktop_profile(store: Store) -> dict:
     config = store.load()
-    models = [{"name": row["model"], "labelOverride": row["label"]} for row in picker_models(config)]
+    by_native_id = {cli_model_id(config, label): label for label in config["models"]}
+    models = [{"name": desktop_alias(by_native_id[row["model"]]), "labelOverride": row["label"]} for row in picker_models(config)]
     profile = {
         "inferenceProvider": "gateway", "inferenceCredentialKind": "static",
         "inferenceGatewayBaseUrl": store.url(),

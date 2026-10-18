@@ -11,7 +11,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .store import FlexError, Store, name, read_json, write_json
+from .store import FlexError, Store, file_lock, name, read_json, write_json
 
 
 def claims(token: str) -> dict:
@@ -94,6 +94,17 @@ def identity(data: dict) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def credential_gateway(store: Store, label: str):
+    from .gateway import Gateway
+    from .profiles import AccountProfile
+
+    metadata = store.load()["accounts"].get(label, {})
+    home = store.home / "instances" / metadata.get("identity", "missing")
+    if metadata.get("credential_path") and (home / "config.json").exists():
+        return Gateway(AccountProfile(home, store.account_path(label)))
+    return Gateway(store)
+
+
 def import_account(store: Store, label: str, data: dict, *, source=None, weight=1, priority=0, replace=False):
     name(label)
     if label == "all":
@@ -108,9 +119,7 @@ def import_account(store: Store, label: str, data: dict, *, source=None, weight=
         raise FlexError("This account is already present. A second label is not another quota.")
     if replace and label in config["accounts"] and config["accounts"][label]["identity"] != fingerprint:
         raise FlexError("Sign in to the same account to renew this label, or add a new account.")
-    from .gateway import Gateway
-
-    with Gateway(store).paused():
+    with credential_gateway(store, label).paused():
         data.update(label=label, weight=weight, priority=priority, disabled=False)
         path = store.account_path(label)
         previous = read_json(path, {})
@@ -119,8 +128,15 @@ def import_account(store: Store, label: str, data: dict, *, source=None, weight=
             def change(current):
                 if (label in current["accounts"] and not replace) or any(item.get("identity") == fingerprint and key != label for key, item in current["accounts"].items()):
                     raise FlexError("Account was added by another process. Retry with 'accounts list'.")
+                canonical = current["accounts"].get(label, {}).get("credential_path")
                 current["accounts"][label] = {"provider": data.get("type", "codex"), "enabled": True, "weight": weight, "priority": priority, "identity": fingerprint, "source": source}
+                if canonical:
+                    current["accounts"][label]["credential_path"] = canonical
             store.mutate(change)
+            if config["accounts"].get(label, {}).get("credential_path"):
+                from .profiles import prepare
+
+                prepare(store, label)
         except Exception:
             if previous:
                 write_json(path, previous)
@@ -200,9 +216,7 @@ def update_account(store: Store, label: str, *, enabled=None, weight=None, prior
         raise FlexError("Unknown account label.")
     if weight is not None and not 1 <= weight <= 1_000_000:
         raise FlexError("Weight must be 1..1000000.")
-    from .gateway import Gateway
-
-    with Gateway(store).paused():
+    with credential_gateway(store, label).paused():
         data = read_json(store.account_path(label))
         changes = {}
         if enabled is not None:
@@ -235,27 +249,30 @@ def select_accounts(store: Store, label: str):
     config = store.load()
     if label != "all" and label not in config["accounts"]:
         raise FlexError("Unknown account.")
-    from .gateway import Gateway
-
-    with Gateway(store).paused():
-        for account in config["accounts"]:
-            if label == "all" or provider_of(config["accounts"][account]) == provider_of(config["accounts"][label]):
-                update_account(store, account, enabled=label == "all" or account == label)
-        store.mutate(lambda current: current.update(selected_account=None if label == "all" else label))
+    # Selection is a preference for the next launch, not a shared-server switch.
+    # Never disable another account or restart a gateway with a live session.
+    def change(current):
+        if label == "all":
+            for metadata in current["accounts"].values():
+                metadata["enabled"] = True
+        else:
+            current["accounts"][label]["enabled"] = True
+        current["selected_account"] = None if label == "all" else label
+    store.mutate(change)
 
 
 def remove_account(store: Store, label: str):
     if label not in store.load()["accounts"]:
         raise FlexError("Unknown account.")
-    from .gateway import Gateway
-
-    with Gateway(store).paused():
+    gateway = credential_gateway(store, label)
+    gateway.stop()
+    with file_lock(store.home / "state.lock"):
         store.account_path(label).unlink(missing_ok=True)
-        def change(config):
-            config["accounts"].pop(label)
-            if config.get("selected_account") == label:
-                config["selected_account"] = None
-        store.mutate(change)
+        config = store.load()
+        config["accounts"].pop(label)
+        if config.get("selected_account") == label:
+            config["selected_account"] = None
+        write_json(store.config_path, config)
 
 
 def rename_account(store: Store, old: str, new: str):
@@ -268,9 +285,11 @@ def rename_account(store: Store, old: str, new: str):
     from .gateway import Gateway
 
     with Gateway(store).paused():
-        credential = read_json(store.account_path(old))
+        original = store.account_path(old)
+        destination = original if config["accounts"][old].get("credential_path") else store.account_path(new)
+        credential = read_json(original)
         credential["label"] = new
-        write_json(store.account_path(new), credential)
+        write_json(destination, credential)
         try:
             def change(current):
                 if new in current["accounts"]:
@@ -280,6 +299,8 @@ def rename_account(store: Store, old: str, new: str):
                     current["selected_account"] = new
             store.mutate(change)
         except Exception:
-            store.account_path(new).unlink(missing_ok=True)
+            if destination != original:
+                destination.unlink(missing_ok=True)
             raise
-        store.account_path(old).unlink()
+        if destination != original:
+            original.unlink()

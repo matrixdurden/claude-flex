@@ -220,6 +220,7 @@ class FlexApp(App):
         self.logins = logins or LoginManager(store)
         self.launch = launch or service.run_claude
         self.desktop_launch = desktop_launch or desktop.open_profile
+        self.desktop_available = True if desktop_launch else None
         self.activate = activate or service.activate_account
         self.catalog_sync = catalog_sync or service.sync_models
         self.catalog_refreshing = False
@@ -245,6 +246,14 @@ class FlexApp(App):
         self.refresh_models()
         self.set_interval(60, self.refresh_usage)
         self.set_interval(300, self.refresh_models)
+        if self.desktop_available is None:
+            self.check_desktop()
+
+    @work
+    async def check_desktop(self):
+        self.desktop_available = await asyncio.to_thread(desktop.available)
+        if self.main_screen():
+            self.draw()
 
     def main_screen(self):
         return len(self.screen_stack) == 1
@@ -282,7 +291,7 @@ class FlexApp(App):
         self.listing.clear_options()
         self.listing.add_options(rows)
         self.listing.highlighted = next((index for index, option in enumerate(rows) if option.id == self.selected_key), None)
-        self.query_one("#keys", Static).update("enter terminal · d desktop · a add · s more · q quit")
+        self.query_one("#keys", Static).update("enter open · " + ("d desktop · " if self.desktop_available else "") + "a add · s more · q quit")
 
     def current(self):
         return self.entries.get(self.selected_key, (None, None))[1]
@@ -365,7 +374,7 @@ class FlexApp(App):
             self.message(str(exc), True)
 
     def action_desktop(self):
-        if self.main_screen() and self.current():
+        if self.main_screen() and self.current() and self.desktop_available:
             self.use_account(self.current(), target="desktop")
 
     def action_add(self):

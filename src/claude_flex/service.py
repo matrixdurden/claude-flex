@@ -10,7 +10,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-from . import accounts, integration
+from . import accounts, integration, profiles
 from .gateway import Gateway, find_binary, install
 from .providers import discover
 from .store import FlexError, Store, read_json, write_json
@@ -187,18 +187,15 @@ def activate_account(store: Store, label: str, *, settings_path: Path | None = N
     ensure_backend(store)
     accounts.select_accounts(store, label)
     report = sync_models(store, force=True)
-    Gateway(store).start()
-    path = integration.apply(store, settings_path)
-    return {"settings_path": str(path), "catalog_errors": report["errors"]}
+    profile = profiles.prepare(store, label)
+    Gateway(profile).start()
+    path = integration.apply(profile, settings_path)
+    return {"settings_path": str(path), "profile_home": str(profile.home), "catalog_errors": report["errors"]}
 
 
 def set_permission_mode(store: Store, mode: str):
-    from . import desktop
-
     store.mutate(lambda config: config.update(permission_mode=mode))
-    integration.refresh_if_connected(store)
-    integration.apply_permissions(store)
-    desktop.apply_permissions(store)
+    # The preference is applied inside the next private profile only.
 
 
 def run_claude(store: Store, account=None, args=()) -> int:
@@ -210,16 +207,9 @@ def run_claude(store: Store, account=None, args=()) -> int:
         selected = next((key for key, value in config["accounts"].items() if value["enabled"]), None)
     if selected is None:
         raise FlexError("Connect and select an account in Claude Flex first.")
-    if account or not (store.home / "integration.json").exists():
-        activate_account(store, selected)
-    else:
-        ensure_backend(store)
-        sync_models(store)
-        Gateway(store).start()
-        integration.refresh_if_connected(store)
-    env = os.environ.copy()
-    for key in integration.LEGACY_ENV | {"ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"}:
-        env.pop(key, None)
+    activate_account(store, selected)
+    profile = profiles.prepare(store, selected)
+    env = profiles.environment(profile)
     mode = store.load().get("permission_mode")
     explicit_mode = any(arg == "--permission-mode" or arg.startswith("--permission-mode=") or arg == "--dangerously-skip-permissions" for arg in args)
     permission_args = ["--permission-mode", mode] if mode and not explicit_mode else []
